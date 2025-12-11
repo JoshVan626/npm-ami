@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+# NPM Backup Script
+# Creates timestamped backups of NPM data and certificates, optionally uploads to S3,
+# and manages local retention policy.
+
+set -euo pipefail
+
+# Configuration file path
+CONFIG_FILE="/etc/npm-backup.conf"
+
+# Default values
+LOCAL_BACKUP_DIR="/var/backups"
+S3_BUCKET=""
+S3_PREFIX="npm"
+LOCAL_RETENTION=7
+
+# Parse configuration file
+if [[ -f "$CONFIG_FILE" ]]; then
+    # Read the [backup] section
+    in_section=false
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        # Remove leading/trailing whitespace
+        line=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        
+        # Skip empty lines and comments
+        [[ -z "$line" || "$line" =~ ^# ]] && continue
+        
+        # Check for section header
+        if [[ "$line" == "[backup]" ]]; then
+            in_section=true
+            continue
+        fi
+        
+        # If we're in the backup section, parse key=value pairs
+        if [[ "$in_section" == true ]]; then
+            # Stop at next section
+            [[ "$line" =~ ^\[.*\]$ ]] && break
+            
+            # Extract key and value
+            if [[ "$line" =~ ^([^=]+)=(.*)$ ]]; then
+                key=$(echo "${BASH_REMATCH[1]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                value=$(echo "${BASH_REMATCH[2]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                
+                case "$key" in
+                    local_backup_dir)
+                        LOCAL_BACKUP_DIR="$value"
+                        ;;
+                    s3_bucket)
+                        S3_BUCKET="$value"
+                        ;;
+                    s3_prefix)
+                        S3_PREFIX="$value"
+                        ;;
+                    local_retention)
+                        LOCAL_RETENTION="$value"
+                        ;;
+                esac
+            fi
+        fi
+    done < "$CONFIG_FILE"
+fi
+
+# Ensure local_backup_dir exists
+mkdir -p "$LOCAL_BACKUP_DIR"
+
+# Generate timestamp for backup filename
+TIMESTAMP=$(date +%Y%m%d%H%M%S)
+BACKUP_FILENAME="npm-${TIMESTAMP}.tar.gz"
+BACKUP_PATH="${LOCAL_BACKUP_DIR}/${BACKUP_FILENAME}"
+
+# Data directories to backup
+DATA_DIR="/opt/npm/data"
+LETSENCRYPT_DIR="/opt/npm/letsencrypt"
+
+echo "Starting NPM backup..."
+echo "Backup directory: $LOCAL_BACKUP_DIR"
+echo "Creating backup: $BACKUP_FILENAME"
+
+# Verify source directories exist
+if [[ ! -d "$DATA_DIR" ]]; then
+    echo "Warning: Data directory $DATA_DIR does not exist"
+fi
+
+if [[ ! -d "$LETSENCRYPT_DIR" ]]; then
+    echo "Warning: Let's Encrypt directory $LETSENCRYPT_DIR does not exist"
+fi
+
+# Create backup archive
+# Use tar from root (/) so absolute paths are preserved for restore
+cd /
+tar -czf "$BACKUP_PATH" \
+    "$DATA_DIR" \
+    "$LETSENCRYPT_DIR" 2>/dev/null || {
+    echo "Error: Failed to create backup archive"
+    exit 1
+}
+
+# Verify backup was created
+if [[ ! -f "$BACKUP_PATH" ]]; then
+    echo "Error: Backup file was not created"
+    exit 1
+fi
+
+BACKUP_SIZE=$(du -h "$BACKUP_PATH" | cut -f1)
+echo "Backup created successfully: $BACKUP_PATH (size: $BACKUP_SIZE)"
+
+# Upload to S3 if configured
+if [[ -n "$S3_BUCKET" ]]; then
+    echo "Attempting S3 upload..."
+    
+    # Check if aws CLI is available
+    if ! command -v aws &> /dev/null; then
+        echo "Warning: AWS CLI not found, skipping S3 upload"
+    else
+        # Build S3 key
+        if [[ -n "$S3_PREFIX" ]]; then
+            S3_KEY="s3://${S3_BUCKET}/${S3_PREFIX}/${BACKUP_FILENAME}"
+        else
+            S3_KEY="s3://${S3_BUCKET}/${BACKUP_FILENAME}"
+        fi
+        
+        echo "Uploading to: $S3_KEY"
+        
+        # Attempt upload (don't fail script if this fails)
+        if aws s3 cp "$BACKUP_PATH" "$S3_KEY" 2>&1; then
+            echo "S3 upload completed successfully"
+        else
+            echo "Warning: S3 upload failed, but local backup was created successfully"
+            echo "Local backup is available at: $BACKUP_PATH"
+        fi
+    fi
+else
+    echo "S3 upload skipped (s3_bucket not configured)"
+fi
+
+# Implement local retention policy
+if [[ "$LOCAL_RETENTION" -gt 0 ]]; then
+    echo "Applying retention policy (keeping $LOCAL_RETENTION most recent backups)..."
+    
+    # Find all npm backup files, sorted by modification time (oldest first)
+    mapfile -t backup_files < <(find "$LOCAL_BACKUP_DIR" -maxdepth 1 -type f -name "npm-*.tar.gz" -printf '%T@ %p\n' | sort -n | cut -d' ' -f2-)
+    
+    BACKUP_COUNT=${#backup_files[@]}
+    
+    if [[ $BACKUP_COUNT -gt $LOCAL_RETENTION ]]; then
+        FILES_TO_DELETE=$((BACKUP_COUNT - LOCAL_RETENTION))
+        echo "Found $BACKUP_COUNT backups, deleting $FILES_TO_DELETE oldest backup(s)..."
+        
+        # Delete oldest files
+        for ((i=0; i<FILES_TO_DELETE; i++)); do
+            OLD_FILE="${backup_files[$i]}"
+            echo "Deleting old backup: $(basename "$OLD_FILE")"
+            rm -f "$OLD_FILE"
+        done
+        
+        echo "Retention cleanup completed. $LOCAL_RETENTION most recent backups retained."
+    else
+        echo "No cleanup needed ($BACKUP_COUNT backups, retention limit: $LOCAL_RETENTION)"
+    fi
+else
+    echo "Retention policy disabled (local_retention = 0)"
+fi
+
+echo "Backup completed successfully"
+exit 0
+

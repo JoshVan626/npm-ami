@@ -1,0 +1,319 @@
+#!/usr/bin/env python3
+"""
+NPM Helper CLI Tool
+
+Provides administrative commands for managing Nginx Proxy Manager:
+- show-admin: Display current admin credentials
+- rotate-admin: Generate and set a new admin password
+- status: Show system and service status
+"""
+
+import argparse
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+# Import shared utilities
+from npm_common import (
+    wait_for_db,
+    get_sqlite_connection,
+    generate_password,
+    hash_password,
+    get_admin_user_id,
+    set_admin_password,
+    write_credentials_file,
+    detect_instance_ip,
+    build_motd_script,
+    AdminUserNotFoundError,
+    AuthRecordNotFoundError,
+    DatabaseTimeoutError,
+)
+
+# Shared constants
+DB_PATH = "/opt/npm/data/database.sqlite"
+ADMIN_EMAIL = "admin@example.com"
+CREDENTIALS_PATH = "/root/npm-admin-credentials.txt"
+MOTD_PATH = "/etc/update-motd.d/50-npm-info"
+BACKUP_DIR = "/var/backups"
+
+
+def cmd_show_admin():
+    """
+    Display the current admin credentials from the credentials file.
+    
+    Exits with code 1 if credentials file does not exist.
+    """
+    cred_file = Path(CREDENTIALS_PATH)
+    
+    if not cred_file.exists():
+        print(f"Error: Credentials file not found at {CREDENTIALS_PATH}")
+        print("Did npm-init run yet?")
+        sys.exit(1)
+    
+    try:
+        with open(cred_file, 'r') as f:
+            lines = f.readlines()
+        
+        username = None
+        password = None
+        
+        for line in lines:
+            line = line.strip()
+            if line.startswith("Username:"):
+                username = line.split(":", 1)[1].strip()
+            elif line.startswith("Password:"):
+                password = line.split(":", 1)[1].strip()
+        
+        if not username or not password:
+            print(f"Error: Could not parse credentials from {CREDENTIALS_PATH}")
+            sys.exit(1)
+        
+        print(f"Admin user: {username}")
+        print(f"Admin password: {password}")
+        
+    except Exception as e:
+        print(f"Error reading credentials file: {e}")
+        sys.exit(1)
+
+
+def cmd_rotate_admin():
+    """
+    Generate a new admin password and update the database, credentials file, and MOTD.
+    
+    Exits with code 1 on errors (database timeout, user not found, etc.).
+    """
+    print("Rotating admin password...")
+    
+    # Wait for database to be ready
+    try:
+        print(f"Waiting for database at {DB_PATH}...")
+        wait_for_db(DB_PATH)
+        print("Database is ready.")
+    except DatabaseTimeoutError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+    
+    # Get database connection
+    try:
+        conn = get_sqlite_connection(DB_PATH)
+    except Exception as e:
+        print(f"Error connecting to database: {e}")
+        sys.exit(1)
+    
+    try:
+        # Look up admin user
+        try:
+            user_id = get_admin_user_id(conn, ADMIN_EMAIL)
+            print(f"Found admin user with ID: {user_id}")
+        except AdminUserNotFoundError as e:
+            print(f"Error: {e}")
+            conn.close()
+            sys.exit(1)
+        
+        # Generate new password
+        new_password = generate_password()
+        print("Generated new admin password.")
+        
+        # Hash the password
+        password_hash = hash_password(new_password)
+        
+        # Update password in database
+        try:
+            set_admin_password(conn, user_id, password_hash)
+            print("Password updated in database.")
+        except AuthRecordNotFoundError as e:
+            print(f"Error: {e}")
+            conn.close()
+            sys.exit(1)
+        
+        # Write credentials file
+        try:
+            write_credentials_file(CREDENTIALS_PATH, ADMIN_EMAIL, new_password)
+            print(f"Credentials written to {CREDENTIALS_PATH}")
+        except Exception as e:
+            print(f"Error writing credentials file: {e}")
+            conn.close()
+            sys.exit(1)
+        
+        # Detect IP and update MOTD
+        try:
+            ip = detect_instance_ip()
+            print(f"Detected instance IP: {ip}")
+            
+            motd_content = build_motd_script(ip, ADMIN_EMAIL, new_password)
+            
+            with open(MOTD_PATH, 'w') as f:
+                f.write(motd_content)
+            
+            # Make MOTD script executable
+            os.chmod(MOTD_PATH, 0o755)
+            print(f"MOTD script updated at {MOTD_PATH}")
+            
+        except Exception as e:
+            print(f"Warning: Failed to update MOTD: {e}")
+            # Don't exit on MOTD failure, password rotation succeeded
+        
+        conn.close()
+        
+        print("\nPassword rotation completed successfully!")
+        print(f"Admin user: {ADMIN_EMAIL}")
+        print(f"New password: {new_password}")
+        
+    except Exception as e:
+        print(f"Unexpected error during password rotation: {e}")
+        conn.close()
+        sys.exit(1)
+
+
+def cmd_status():
+    """
+    Display system and service status.
+    
+    Shows:
+    - Docker service status
+    - npm service status
+    - NPM container status
+    - Last backup file (if any)
+    
+    Exits with code 0 unless an unexpected error occurs.
+    """
+    status_info = {}
+    
+    # Check Docker service status
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-active", "docker"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            status_info["docker"] = result.stdout.strip()
+        else:
+            status_info["docker"] = "inactive"
+    except Exception as e:
+        status_info["docker"] = f"unknown (error: {e})"
+    
+    # Check npm service status
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-active", "npm"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            status_info["npm"] = result.stdout.strip()
+        else:
+            status_info["npm"] = "inactive"
+    except Exception as e:
+        status_info["npm"] = f"unknown (error: {e})"
+    
+    # Check NPM container status
+    container_status = "unknown"
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "ps", "--format", "json"],
+            cwd="/opt/npm",
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            # Parse JSON output to determine container state
+            import json
+            lines = result.stdout.strip().split('\n')
+            for line in lines:
+                if line.strip():
+                    try:
+                        container = json.loads(line)
+                        state = container.get("State", "unknown")
+                        if state == "running":
+                            container_status = "running"
+                            break
+                        elif state in ["exited", "stopped"]:
+                            container_status = "exited"
+                    except json.JSONDecodeError:
+                        pass
+        else:
+            container_status = "not found"
+    except FileNotFoundError:
+        container_status = "docker compose not available"
+    except Exception as e:
+        container_status = f"error checking ({e})"
+    
+    status_info["container"] = container_status
+    
+    # Find last backup
+    last_backup = "none found"
+    try:
+        backup_dir = Path(BACKUP_DIR)
+        if backup_dir.exists() and backup_dir.is_dir():
+            backup_files = list(backup_dir.glob("npm-*.tar.gz"))
+            if backup_files:
+                # Sort by modification time, most recent first
+                backup_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+                last_backup = backup_files[0].name
+    except Exception as e:
+        last_backup = f"error checking ({e})"
+    
+    # Print status summary
+    print("NPM System Status")
+    print("=" * 50)
+    print(f"Docker service:  {status_info['docker']}")
+    print(f"npm service:     {status_info['npm']}")
+    print(f"NPM container:   {status_info['container']}")
+    print(f"Last backup:      {last_backup}")
+    print("=" * 50)
+
+
+def main():
+    """Main entry point for npm-helper CLI."""
+    parser = argparse.ArgumentParser(
+        description="NPM Helper - Administrative commands for Nginx Proxy Manager",
+        prog="npm-helper"
+    )
+    
+    subparsers = parser.add_subparsers(
+        dest="command",
+        help="Available commands",
+        required=True
+    )
+    
+    # show-admin subcommand
+    parser_show = subparsers.add_parser(
+        "show-admin",
+        help="Display current admin credentials"
+    )
+    
+    # rotate-admin subcommand
+    parser_rotate = subparsers.add_parser(
+        "rotate-admin",
+        help="Generate and set a new admin password"
+    )
+    
+    # status subcommand
+    parser_status = subparsers.add_parser(
+        "status",
+        help="Show system and service status"
+    )
+    
+    # Parse arguments
+    args = parser.parse_args()
+    
+    # Execute the appropriate command
+    if args.command == "show-admin":
+        cmd_show_admin()
+    elif args.command == "rotate-admin":
+        cmd_rotate_admin()
+    elif args.command == "status":
+        cmd_status()
+    else:
+        parser.print_help()
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
+
