@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# NPM Diagnostics Script
+# Collects basic system, service, and NPM health information.
+
+set -euo pipefail
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Nginx Proxy Manager – Hardened Edition (Ubuntu 22.04) by Northstar Cloud Solutions - Diagnostics"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# 1. Basic system info
+echo "[1/6] System information"
+echo "Hostname: $(hostname)"
+echo "Date: $(date -Iseconds)"
+echo "Uptime: $(uptime -p || true)"
+echo "Kernel: $(uname -r)"
+echo ""
+
+# 2. Disk usage
+echo "[2/6] Disk usage (root filesystem)"
+df -h /
+echo ""
+
+# 3. Service status
+echo "[3/6] Systemd service status (docker, npm, npm-init, backup timer)"
+for svc in docker npm npm-init npm-backup.timer amazon-cloudwatch-agent fail2ban; do
+    if systemctl list-unit-files | grep -q "^${svc}"; then
+        echo "---- $svc ----"
+        systemctl --no-pager --full status "$svc" || true
+        echo ""
+    fi
+done
+
+# 4. Docker / NPM container status
+echo "[4/6] Docker & NPM container status"
+if command -v docker &>/dev/null; then
+    echo "Docker version:"
+    docker --version || true
+    echo ""
+
+    if [ -d /opt/npm ]; then
+        cd /opt/npm
+        echo "docker compose ps:"
+        docker compose ps || true
+        echo ""
+    else
+        echo "/opt/npm not found (NPM stack directory missing)"
+        echo ""
+    fi
+else
+    echo "Docker not installed or not in PATH"
+    echo ""
+fi
+
+# 5. Backup status
+echo "[5/6] Backup status"
+if [ -f /etc/npm-backup.conf ]; then
+    echo "Backup configuration (/etc/npm-backup.conf):"
+    sed 's/^/    /' /etc/npm-backup.conf || true
+    echo ""
+fi
+
+BACKUP_DIR=$(awk -F'=' '/local_backup_dir/ {gsub(/ /, "", $2); print $2}' /etc/npm-backup.conf 2>/dev/null || echo "/var/backups")
+if [ -d "$BACKUP_DIR" ]; then
+    echo "Recent backup files in $BACKUP_DIR:"
+    ls -1t "$BACKUP_DIR"/npm-*.tar.gz 2>/dev/null | head -5 || echo "No npm-*.tar.gz backups found."
+else
+    echo "Backup directory $BACKUP_DIR does not exist."
+fi
+echo ""
+
+# 6. Logs (last few lines)
+echo "[6/6] Recent logs"
+echo "Last 50 lines of syslog:"
+sudo tail -n 50 /var/log/syslog 2>/dev/null || echo "No /var/log/syslog"
+echo ""
+echo "Last 50 lines of auth.log:"
+sudo tail -n 50 /var/log/auth.log 2>/dev/null || echo "No /var/log/auth.log"
+echo ""
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Diagnostics complete."
+echo "You can include this output in support requests (redact sensitive info first)."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+

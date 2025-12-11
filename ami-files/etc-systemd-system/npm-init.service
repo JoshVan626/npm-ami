@@ -1,0 +1,17 @@
+[Unit]
+Description=Nginx Proxy Manager First-Boot Initialization
+Documentation=https://docs.northstar.cloud/npm-ami
+After=npm.service
+Requires=npm.service
+ConditionPathExists=!/var/lib/npm-init-complete
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/npm-init.py
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+

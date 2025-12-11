@@ -1,0 +1,43 @@
+﻿# Windows
+Thumbs.db
+.DS_Store
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# Git
+.git/
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Python
+__pycache__/
+*.py[cod]
+*.class
+*.so
+.Python
+venv/
+env/
+
+# AWS credentials (NEVER commit these)
+.aws/
+*.pem
+*-key.pem
+aws-credentials.txt
+
+# Backup files (if any)
+*.bak
+*.backup
+
+# Test instances (if tracking)
+test-instances/
