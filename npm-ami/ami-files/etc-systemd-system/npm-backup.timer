@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Northstar Cloud Solutions NPM backup
+Documentation=https://docs.northstar.cloud/npm-ami
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+

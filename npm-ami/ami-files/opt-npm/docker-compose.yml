@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  app:
+    image: "jc21/nginx-proxy-manager:2.13.5"
+    container_name: nginx-proxy-manager
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "81:81"
+      - "443:443"
+    volumes:
+      - ./data:/data
+      - ./letsencrypt:/etc/letsencrypt
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:81/api"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    environment:
+      - DISABLE_IPV6=true
+

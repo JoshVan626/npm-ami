@@ -1,0 +1,13 @@
+[Unit]
+Description=Northstar Cloud Solutions NPM Backup
+Documentation=https://docs.northstar.cloud/npm-ami
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/npm-backup
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+
