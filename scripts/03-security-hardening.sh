@@ -2,7 +2,10 @@
 # Security Hardening Script
 # Applies SSH hardening, UFW firewall, fail2ban, sysctl tuning, and SSH banner
 
-set -euo pipefail
+set -Eeuo pipefail
+
+# Print a helpful message on unexpected errors. (Expected validation failures are handled explicitly.)
+trap 'echo "✗ Error: Script failed on line ${LINENO}. Aborting."; exit 1' ERR
 
 # Determine repo root and ami-files path
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -65,11 +68,99 @@ echo "[2/7] Hardening SSH configuration..."
 
 SSH_CONFIG="/etc/ssh/sshd_config"
 
-# Backup original SSH config
-if [[ ! -f "${SSH_CONFIG}.bak" ]]; then
-    cp "$SSH_CONFIG" "${SSH_CONFIG}.bak"
+################################################################################
+# SSH SAFETY GUARDRAILS (to prevent lockout incidents)
+#
+# - Always back up /etc/ssh/sshd_config *before* editing.
+#   - We keep a stable backup at /etc/ssh/sshd_config.bak
+#   - If .bak already exists, we also snapshot it to a timestamped file so we
+#     never lose the last known-good copy.
+# - Never restart/reload SSH unless `sshd -t` validates the config.
+#   - If validation fails, we automatically restore the backup, re-validate, and
+#     abort (fail fast).
+# - Ensure host keys exist before any SSH restart (`ssh-keygen -A`).
+# - Restart SSH safely and verify it is running (`systemctl is-active ssh`).
+#   - On failure, restore the backup config and retry once, then abort.
+################################################################################
+
+ssh_timestamp() { date +"%Y%m%d-%H%M%S"; }
+
+backup_sshd_config() {
+    # Always create/update the primary .bak from the pre-edit config.
+    # If a .bak already exists, preserve it with a timestamp to avoid losing the
+    # last known-good backup.
+    if [[ -f "${SSH_CONFIG}.bak" ]]; then
+        local ts
+        ts="$(ssh_timestamp)"
+        cp -a "${SSH_CONFIG}.bak" "${SSH_CONFIG}.bak.${ts}"
+        echo "  Preserved existing backup: ${SSH_CONFIG}.bak.${ts}"
+    fi
+
+    cp -a "$SSH_CONFIG" "${SSH_CONFIG}.bak"
     echo "  Created backup: ${SSH_CONFIG}.bak"
-fi
+}
+
+restore_sshd_config() {
+    echo "  Restoring SSH config from backup: ${SSH_CONFIG}.bak"
+    cp -a "${SSH_CONFIG}.bak" "$SSH_CONFIG"
+}
+
+validate_sshd_config_or_restore_and_abort() {
+    # Do NOT let `set -e` exit before we restore; handle validation explicitly.
+    if sshd -t; then
+        echo "  ✓ sshd_config validated (sshd -t)"
+        return 0
+    fi
+
+    echo "✗ ERROR: SSH configuration validation failed (sshd -t)."
+    echo "         Restoring the previous configuration to prevent SSH lockout."
+    restore_sshd_config
+
+    if sshd -t; then
+        echo "  ✓ Restored config validates. Aborting to avoid applying a broken SSH config."
+        exit 1
+    fi
+
+    echo "✗ ERROR: Restored SSH config STILL fails validation (sshd -t)."
+    echo "         Manual intervention required. Aborting."
+    exit 1
+}
+
+safe_restart_ssh_or_abort() {
+    # Ensure host keys exist before attempting restart (required for sshd to start).
+    ssh-keygen -A
+
+    # Restart SSH (do not reload) and verify it's active.
+    systemctl restart ssh
+    if systemctl is-active --quiet ssh; then
+        echo "✓ SSH service restarted and is active"
+        return 0
+    fi
+
+    echo "✗ ERROR: SSH service is not active after restart."
+    echo "         Attempting automatic recovery: restore backup config and retry once."
+
+    restore_sshd_config
+    ssh-keygen -A
+
+    # Re-validate before retrying the restart.
+    if ! sshd -t; then
+        echo "✗ ERROR: Restored SSH config failed validation (sshd -t). Aborting."
+        exit 1
+    fi
+
+    systemctl restart ssh
+    if systemctl is-active --quiet ssh; then
+        echo "✓ SSH recovered: service restarted and is active after restoring backup"
+        return 0
+    fi
+
+    echo "✗ ERROR: SSH service still not active after recovery attempt. Aborting."
+    exit 1
+}
+
+# Backup SSH config before any edits (always).
+backup_sshd_config
 
 # Function to set SSH directive
 set_ssh_directive() {
@@ -89,12 +180,30 @@ set_ssh_directive() {
 }
 
 # Apply SSH hardening directives
+# Conservative defaults:
+# - Keep port 22 available (do not disable it). If a custom Port is already set
+#   and does not include 22, we add an additional "Port 22" line rather than
+#   overwriting existing ports.
+# - Ensure Public Key auth stays enabled (preferred for secure access).
+if grep -qE '^[[:space:]]*#?[[:space:]]*Port[[:space:]]+22([[:space:]]+|$)' "$SSH_CONFIG"; then
+    echo "    Port 22 already present"
+elif grep -qE '^[[:space:]]*#?[[:space:]]*Port[[:space:]]+' "$SSH_CONFIG"; then
+    echo "    Adding: Port 22 (in addition to existing Port directives)"
+    echo "Port 22" >> "$SSH_CONFIG"
+else
+    set_ssh_directive "Port" "22"
+fi
+
+set_ssh_directive "PubkeyAuthentication" "yes"
 set_ssh_directive "PasswordAuthentication" "no"
 set_ssh_directive "PermitRootLogin" "no"
 set_ssh_directive "UsePAM" "yes"
 set_ssh_directive "Banner" "/etc/issue.net"
 
-echo "✓ SSH configuration hardened"
+echo "  Validating SSH configuration..."
+validate_sshd_config_or_restore_and_abort
+
+echo "✓ SSH configuration hardened and validated"
 
 # Step 3: Apply sysctl settings
 echo ""
@@ -161,41 +270,32 @@ else
     echo "⚠ Warning: fail2ban service may not be running properly"
 fi
 
-# Step 6: Remove existing SSH host keys
+# Step 6: Restart SSH safely (validated config + host keys + active check)
 echo ""
-echo "[6/7] Removing SSH host keys..."
+echo "[6/7] Restarting SSH service safely..."
 
-# Remove all SSH host keys
-# These will be regenerated on first boot by cloud-init or sshd
-# This ensures each instance launched from the AMI has unique host keys
-rm -f /etc/ssh/ssh_host_*
-
-echo "✓ SSH host keys removed"
-echo "  Note: Host keys will be regenerated on first boot by cloud-init or sshd"
-echo "        This ensures each instance has unique SSH host keys"
-
-# Step 7: Reload/restart SSH
-echo ""
-echo "[7/7] Reloading SSH service..."
-
-echo "⚠ WARNING: SSH service will be reloaded/restarted."
+echo "⚠ WARNING: SSH service will be restarted."
 echo "           Your current SSH session may be disconnected."
 echo "           Wait a few seconds before attempting to reconnect."
 echo ""
 
-# Try to reload SSH (safer than restart)
-if systemctl reload ssh 2>/dev/null; then
-    echo "✓ SSH service reloaded (systemctl reload ssh)"
-elif systemctl reload sshd 2>/dev/null; then
-    echo "✓ SSH service reloaded (systemctl reload sshd)"
-elif systemctl restart ssh 2>/dev/null; then
-    echo "✓ SSH service restarted (systemctl restart ssh)"
-elif systemctl restart sshd 2>/dev/null; then
-    echo "✓ SSH service restarted (systemctl restart sshd)"
-else
-    echo "⚠ Warning: Could not reload/restart SSH service"
-    echo "           You may need to manually restart SSH: systemctl restart ssh"
-fi
+# Never restart SSH unless the config validates.
+echo "  Re-validating SSH configuration immediately before restart..."
+validate_sshd_config_or_restore_and_abort
+
+safe_restart_ssh_or_abort
+
+# Step 7: Remove existing SSH host keys (for AMI uniqueness)
+echo ""
+echo "[7/7] Removing SSH host keys..."
+
+# Remove all SSH host keys so instances launched from the AMI generate unique keys.
+# IMPORTANT: We do this *after* verifying SSH can restart safely to prevent lockout.
+rm -f /etc/ssh/ssh_host_*
+
+echo "✓ SSH host keys removed"
+echo "  Note: Host keys will be regenerated on first boot by cloud-init or system services"
+echo "        This ensures each instance has unique SSH host keys"
 
 # Summary
 echo ""
