@@ -285,17 +285,46 @@ validate_sshd_config_or_restore_and_abort
 
 safe_restart_ssh_or_abort
 
-# Step 7: Remove existing SSH host keys (for AMI uniqueness)
+# Step 7: Configure cloud-init for SSH host key regeneration (for AMI uniqueness)
 echo ""
-echo "[7/7] Removing SSH host keys..."
+echo "[7/7] Configuring cloud-init for SSH host key regeneration..."
 
-# Remove all SSH host keys so instances launched from the AMI generate unique keys.
-# IMPORTANT: We do this *after* verifying SSH can restart safely to prevent lockout.
-rm -f /etc/ssh/ssh_host_*
+# SAFETY: We do NOT delete SSH host keys directly in this script.
+# Deleting /etc/ssh/ssh_host_* here can brick SSH on next reboot if keys aren't
+# regenerated before sshd starts. Instead, we configure cloud-init to safely
+# handle key deletion and regeneration on first boot of each new instance.
 
-echo "✓ SSH host keys removed"
-echo "  Note: Host keys will be regenerated on first boot by cloud-init or system services"
-echo "        This ensures each instance has unique SSH host keys"
+# Require cloud-init to be pre-installed (should be done in 00-base-packages.sh)
+if ! command -v cloud-init >/dev/null 2>&1; then
+    echo "✗ Error: cloud-init is not installed. Install it in 00-base-packages.sh before running hardening."
+    exit 1
+fi
+
+# Copy cloud-init SSH key regeneration config
+CLOUD_INIT_CFG="/etc/cloud/cloud.cfg.d/99-northstar-sshkeys.cfg"
+CLOUD_INIT_SRC="$AMI_FILES/etc-cloud-cloud.cfg.d/99-northstar-sshkeys.cfg"
+
+if [[ ! -f "$CLOUD_INIT_SRC" ]]; then
+    echo "✗ Error: cloud-init SSH config not found at $CLOUD_INIT_SRC"
+    exit 1
+fi
+
+# Ensure the target directory exists
+mkdir -p /etc/cloud/cloud.cfg.d
+
+cp "$CLOUD_INIT_SRC" "$CLOUD_INIT_CFG"
+chown root:root "$CLOUD_INIT_CFG"
+chmod 0644 "$CLOUD_INIT_CFG"
+
+# Verify cloud-init is enabled
+systemctl enable cloud-init 2>/dev/null || true
+
+echo "✓ Cloud-init configured for SSH host key regeneration"
+echo "  Installed: $CLOUD_INIT_CFG"
+echo "  On first boot, cloud-init will:"
+echo "    - Delete existing SSH host keys (ssh_deletekeys: true)"
+echo "    - Regenerate RSA, ECDSA, and ED25519 keys before sshd starts"
+echo "  This ensures each instance launched from the AMI has unique SSH host keys"
 
 # Summary
 echo ""
@@ -330,8 +359,9 @@ else
     echo "  - Service enabled (status unknown)"
 fi
 echo ""
-echo "SSH host keys:"
-echo "  - Removed (will be regenerated on first boot)"
+echo "SSH host keys (via cloud-init):"
+echo "  - cloud-init configured to delete and regenerate keys on first boot"
+echo "  - Each instance will have unique RSA, ECDSA, and ED25519 keys"
 echo ""
 echo "Sysctl settings:"
 echo "  - Network hardening applied"
