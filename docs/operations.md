@@ -5,6 +5,72 @@ run in production.
 
 ---
 
+## NPM Initialization (First Boot)
+
+On first boot, `npm-init.service` runs once to:
+
+1. Wait for the NPM SQLite database to become ready (up to ~300 seconds)
+2. Generate a secure random admin password
+3. Update the database with the new credentials
+4. Write credentials to `/root/npm-admin-credentials.txt`
+5. Update the SSH login banner (MOTD)
+
+The wait time accounts for slow instance types or cold container pulls.
+
+### Admin email
+
+The default admin email is `admin@example.com` (NPM's default).
+
+To use a different email, set the `NPM_ADMIN_EMAIL` environment variable before
+first boot. For example, add to `/etc/environment`:
+
+```bash
+NPM_ADMIN_EMAIL=admin@yourdomain.com
+```
+
+Or create a systemd override for `npm-init.service`:
+
+```bash
+sudo systemctl edit npm-init
+```
+
+Add:
+
+```ini
+[Service]
+Environment="NPM_ADMIN_EMAIL=admin@yourdomain.com"
+```
+
+This must be set **before the first boot initialization runs**. If you need to
+change the email after initialization, update the NPM database directly via the
+web UI.
+
+### Troubleshooting init failures
+
+If NPM doesn't come up after first boot:
+
+```bash
+# Check init service status
+sudo systemctl status npm-init
+
+# View detailed init logs
+sudo journalctl -u npm-init -xe
+
+# Restart the NPM stack
+sudo systemctl restart npm
+
+# Re-run initialization (safe to run multiple times)
+sudo systemctl restart npm-init
+```
+
+Common causes:
+
+- Container image pull timeout (retry usually fixes it)
+- Insufficient instance resources (use t3.small or larger)
+- Docker service not ready (check `systemctl status docker`)
+
+---
+
 ## Systemd services
 
 Key services:
@@ -129,3 +195,92 @@ These paths are:
 - Mounted into the NPM container
 - Included in backup archives (`npm-backup` / `npm-restore`)
 - Preserved across instance reboots
+
+---
+
+## Backups
+
+Backups are managed by `npm-backup` and configured in `/etc/npm-backup.conf`.
+
+### Retention requirements
+
+The `[backup] local_retention` setting **must be 1 or greater**. Setting it to 0
+will cause `npm-backup` to exit with an error. This prevents unbounded disk
+growth from accumulating backup files.
+
+Recommended: `local_retention = 7` (or higher for critical environments).
+
+### Disk usage
+
+Each backup archive is typically 1–10 MB depending on your NPM configuration
+and certificate count. Monitor `/var/backups` disk usage, especially on
+smaller EBS volumes.
+
+### S3 uploads
+
+To enable S3 uploads:
+
+1. Attach an IAM role with `s3:PutObject` permission to the instance
+2. Set `s3_bucket` in `/etc/npm-backup.conf`
+3. Ensure the AWS CLI is installed (pre-installed on this AMI)
+
+If the instance lacks proper IAM permissions or the AWS CLI, S3 upload will
+fail with a warning but local backup will still succeed.
+
+See [Backup & Restore](./backup-restore.md) for full configuration details.
+
+---
+
+## Restore
+
+Use `npm-restore` to restore from a backup archive.
+
+### Trust model
+
+**Only restore archives created by `npm-backup` on trusted instances.**
+
+The restore script validates archive contents before extraction and will
+**refuse to extract** archives containing paths outside the expected
+directories (`opt/npm/data`, `opt/npm/letsencrypt`). This prevents malicious
+or corrupted archives from overwriting system files.
+
+If you see an error like:
+
+```
+✗ Error: Archive contains paths outside allowed directories!
+```
+
+The archive may be corrupted, tampered with, or created by a different tool.
+Do not attempt to bypass this check.
+
+See [Backup & Restore](./backup-restore.md) for restore procedures.
+
+---
+
+## Support Bundles
+
+The `npm-support-bundle` command collects diagnostic information for
+troubleshooting:
+
+```bash
+sudo npm-support-bundle
+```
+
+### Storage location
+
+Bundles are stored under `/var/backups` with names like:
+
+```
+npm-support-YYYYMMDDHHMMSS.tar.gz
+```
+
+### Cleanup
+
+Support bundles are **not automatically pruned**. To remove bundles older than
+14 days:
+
+```bash
+sudo find /var/backups -maxdepth 1 -name 'npm-support-*.tar.gz' -mtime +14 -delete
+```
+
+Consider adding this to a cron job if you generate bundles frequently.

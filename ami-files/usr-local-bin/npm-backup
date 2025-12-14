@@ -5,6 +5,20 @@
 
 set -euo pipefail
 
+# Prevent concurrent runs (timer + manual overlap)
+LOCK_DIR="/var/lock"
+LOCK_FILE="${LOCK_DIR}/npm-backup.lock"
+
+# Ensure lock directory exists (normally present, but be safe)
+[[ -d "$LOCK_DIR" ]] || mkdir -p "$LOCK_DIR"
+
+# Acquire exclusive lock (non-blocking)
+exec 200>"${LOCK_FILE}"
+if ! flock -n 200; then
+    echo "Error: another npm-backup run is in progress (lock: ${LOCK_FILE})"
+    exit 1
+fi
+
 # Configuration file path
 CONFIG_FILE="/etc/npm-backup.conf"
 
@@ -58,6 +72,13 @@ if [[ -f "$CONFIG_FILE" ]]; then
             fi
         fi
     done < "$CONFIG_FILE"
+fi
+
+# Validate local_retention to prevent unbounded disk growth
+if [[ "$LOCAL_RETENTION" -lt 1 ]]; then
+    echo "Error: local_retention must be 1 or greater (current: $LOCAL_RETENTION)"
+    echo "Fix: set [backup] local_retention in /etc/npm-backup.conf (recommended 7+)."
+    exit 1
 fi
 
 # Ensure local_backup_dir exists
@@ -133,32 +154,28 @@ else
     echo "S3 upload skipped (s3_bucket not configured)"
 fi
 
-# Implement local retention policy
-if [[ "$LOCAL_RETENTION" -gt 0 ]]; then
-    echo "Applying retention policy (keeping $LOCAL_RETENTION most recent backups)..."
+# Implement local retention policy (LOCAL_RETENTION >= 1 enforced above)
+echo "Applying retention policy (keeping $LOCAL_RETENTION most recent backups)..."
+
+# Find all npm backup files, sorted by modification time (oldest first)
+mapfile -t backup_files < <(find "$LOCAL_BACKUP_DIR" -maxdepth 1 -type f -name "npm-*.tar.gz" -printf '%T@ %p\n' | sort -n | cut -d' ' -f2-)
+
+BACKUP_COUNT=${#backup_files[@]}
+
+if [[ $BACKUP_COUNT -gt $LOCAL_RETENTION ]]; then
+    FILES_TO_DELETE=$((BACKUP_COUNT - LOCAL_RETENTION))
+    echo "Found $BACKUP_COUNT backups, deleting $FILES_TO_DELETE oldest backup(s)..."
     
-    # Find all npm backup files, sorted by modification time (oldest first)
-    mapfile -t backup_files < <(find "$LOCAL_BACKUP_DIR" -maxdepth 1 -type f -name "npm-*.tar.gz" -printf '%T@ %p\n' | sort -n | cut -d' ' -f2-)
+    # Delete oldest files
+    for ((i=0; i<FILES_TO_DELETE; i++)); do
+        OLD_FILE="${backup_files[$i]}"
+        echo "Deleting old backup: $(basename "$OLD_FILE")"
+        rm -f "$OLD_FILE"
+    done
     
-    BACKUP_COUNT=${#backup_files[@]}
-    
-    if [[ $BACKUP_COUNT -gt $LOCAL_RETENTION ]]; then
-        FILES_TO_DELETE=$((BACKUP_COUNT - LOCAL_RETENTION))
-        echo "Found $BACKUP_COUNT backups, deleting $FILES_TO_DELETE oldest backup(s)..."
-        
-        # Delete oldest files
-        for ((i=0; i<FILES_TO_DELETE; i++)); do
-            OLD_FILE="${backup_files[$i]}"
-            echo "Deleting old backup: $(basename "$OLD_FILE")"
-            rm -f "$OLD_FILE"
-        done
-        
-        echo "Retention cleanup completed. $LOCAL_RETENTION most recent backups retained."
-    else
-        echo "No cleanup needed ($BACKUP_COUNT backups, retention limit: $LOCAL_RETENTION)"
-    fi
+    echo "Retention cleanup completed. $LOCAL_RETENTION most recent backups retained."
 else
-    echo "Retention policy disabled (local_retention = 0)"
+    echo "No cleanup needed ($BACKUP_COUNT backups, retention limit: $LOCAL_RETENTION)"
 fi
 
 echo "Backup completed successfully"

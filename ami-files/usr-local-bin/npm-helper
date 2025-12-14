@@ -28,11 +28,11 @@ from npm_common import (
     AdminUserNotFoundError,
     AuthRecordNotFoundError,
     DatabaseTimeoutError,
+    ADMIN_EMAIL,  # Configurable via NPM_ADMIN_EMAIL env var
 )
 
 # Shared constants
 DB_PATH = "/opt/npm/data/database.sqlite"
-ADMIN_EMAIL = "admin@example.com"
 CREDENTIALS_PATH = "/root/npm-admin-credentials.txt"
 MOTD_PATH = "/etc/update-motd.d/50-npm-info"
 BACKUP_DIR = "/var/backups"

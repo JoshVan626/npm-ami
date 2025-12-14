@@ -39,7 +39,7 @@ echo "Backup archive: $BACKUP_ARCHIVE"
 echo ""
 
 # Step 1: Stop NPM stack
-echo "[1/6] Stopping NPM stack..."
+echo "[1/7] Stopping NPM stack..."
 if systemctl stop npm 2>&1; then
     echo "✓ NPM service stopped"
 else
@@ -57,7 +57,7 @@ sleep 2
 
 # Step 2: Create safety backup of existing data
 echo ""
-echo "[2/6] Creating safety backup of existing data..."
+echo "[2/7] Creating safety backup of existing data..."
 
 SAFETY_TIMESTAMP=$(date +%Y%m%d%H%M%S)
 DATA_DIR="/opt/npm/data"
@@ -93,13 +93,57 @@ else
     echo "ℹ No existing data to backup"
 fi
 
-# Step 3: Extract the backup archive
+# Step 3: Validate archive contents (security check)
 echo ""
-echo "[3/6] Extracting backup archive..."
+echo "[3/7] Validating archive contents..."
+
+# SECURITY: Only allow paths within expected NPM directories.
+# This prevents malicious archives from overwriting system files like /etc/passwd.
+# Allowed prefixes (with or without leading "./"):
+#   opt/npm/data/...
+#   opt/npm/letsencrypt/...
+
+ALLOWED_PATTERN='^(\./)?(opt/npm/data(/|$)|opt/npm/letsencrypt(/|$))'
+
+# List all entries in the archive and check each one
+INVALID_PATHS=()
+while IFS= read -r entry; do
+    # Normalize: remove leading "./" for consistent matching
+    normalized="${entry#./}"
+    
+    # Check if entry matches allowed pattern
+    if [[ ! "$normalized" =~ $ALLOWED_PATTERN ]]; then
+        INVALID_PATHS+=("$entry")
+    fi
+done < <(tar -tzf "$BACKUP_ARCHIVE" 2>/dev/null)
+
+if [[ ${#INVALID_PATHS[@]} -gt 0 ]]; then
+    echo "✗ Error: Archive contains paths outside allowed directories!"
+    echo ""
+    echo "Allowed paths: opt/npm/data/*, opt/npm/letsencrypt/*"
+    echo ""
+    echo "Invalid paths found (first 10):"
+    for ((i=0; i<${#INVALID_PATHS[@]} && i<10; i++)); do
+        echo "  - ${INVALID_PATHS[$i]}"
+    done
+    if [[ ${#INVALID_PATHS[@]} -gt 10 ]]; then
+        echo "  ... and $((${#INVALID_PATHS[@]} - 10)) more"
+    fi
+    echo ""
+    echo "This archive may be corrupted or malicious. Restore aborted."
+    exit 1
+fi
+
+echo "✓ Archive contents validated (all paths within allowed directories)"
+
+# Step 4: Extract the backup archive
+echo ""
+echo "[4/7] Extracting backup archive..."
 
 # Extract from root (/) so absolute paths are restored correctly
+# Use safer flags: --no-same-owner prevents ownership issues, --no-overwrite-dir is safer
 cd /
-if tar -xzf "$BACKUP_ARCHIVE" 2>&1; then
+if tar --extract --gzip --file "$BACKUP_ARCHIVE" --no-same-owner --no-overwrite-dir 2>&1; then
     echo "✓ Archive extracted successfully"
 else
     EXIT_CODE=$?
@@ -118,9 +162,9 @@ if [[ ! -d "$LETSENCRYPT_DIR" ]]; then
     echo "  This is normal if the backup was created before certificates were issued"
 fi
 
-# Step 4: Fix ownership and permissions
+# Step 5: Fix ownership and permissions
 echo ""
-echo "[4/6] Setting ownership and permissions..."
+echo "[5/7] Setting ownership and permissions..."
 
 # Set ownership to root:root (v1 assumption)
 if chown -R root:root "$DATA_DIR" 2>/dev/null; then
@@ -137,9 +181,9 @@ if [[ -d "$LETSENCRYPT_DIR" ]]; then
     fi
 fi
 
-# Step 5: Start NPM stack
+# Step 6: Start NPM stack
 echo ""
-echo "[5/6] Starting NPM stack..."
+echo "[6/7] Starting NPM stack..."
 
 if systemctl start npm 2>&1; then
     echo "✓ NPM service started"
@@ -152,9 +196,9 @@ fi
 # Give it a moment to start
 sleep 3
 
-# Step 6: Basic health check
+# Step 7: Basic health check
 echo ""
-echo "[6/6] Performing health check..."
+echo "[7/7] Performing health check..."
 
 MAX_WAIT=60
 WAIT_INTERVAL=2

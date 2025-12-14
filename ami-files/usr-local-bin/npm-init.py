@@ -32,6 +32,7 @@ from npm_common import (
     AdminUserNotFoundError,
     AuthRecordNotFoundError,
     DatabaseTimeoutError,
+    ADMIN_EMAIL,  # Configurable via NPM_ADMIN_EMAIL env var
 )
 
 # Configuration constants
@@ -39,7 +40,6 @@ MARKER_FILE = Path("/var/lib/npm-init-complete")
 DB_PATH = Path("/opt/npm/data/database.sqlite")
 CREDENTIALS_FILE = Path("/root/npm-admin-credentials.txt")
 MOTD_SCRIPT = Path("/etc/update-motd.d/50-npm-info")
-ADMIN_EMAIL = "admin@example.com"
 
 # Setup logging
 logging.basicConfig(

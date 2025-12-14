@@ -51,9 +51,10 @@ Fields:
   Optional key prefix. Example: `npm` → backups stored under `npm/...` in S3.
 
 - `local_retention`  
-  Number of most recent local backup files to keep.
+  Number of most recent local backup files to keep. **Must be 1 or greater.**
   If set to `7`, the script retains the 7 newest backups and deletes older ones.
-  Set to `0` to disable automatic cleanup (not recommended).
+  Setting this to `0` will cause `npm-backup` to fail with an error (to prevent
+  unbounded disk growth). Recommended: `7` or higher.
 
 ---
 
@@ -123,7 +124,25 @@ If S3 upload fails, the script will:
 
 Use `npm-restore` to restore from a backup archive.
 
-> ⚠ Only run this when you are comfortable overwriting the current NPM data.
+> ⚠ **Only run this when you are comfortable overwriting the current NPM data.**
+
+### Trust model
+
+**Only restore archives created by `npm-backup` on trusted instances.**
+
+The restore script validates archive contents before extraction and will refuse
+to extract archives containing paths outside the expected directories
+(`opt/npm/data`, `opt/npm/letsencrypt`). This security check prevents malicious
+or corrupted archives from overwriting system files like `/etc/passwd`.
+
+If validation fails, you'll see:
+
+```
+✗ Error: Archive contains paths outside allowed directories!
+```
+
+Do not attempt to bypass this check. The archive may be corrupted, tampered
+with, or created by a different tool.
 
 1. List available backups:
 

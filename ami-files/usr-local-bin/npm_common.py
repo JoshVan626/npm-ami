@@ -15,6 +15,11 @@ import subprocess
 from pathlib import Path
 
 
+# Configurable admin email (override via environment variable)
+# Default: admin@example.com (matches NPM's default admin user)
+ADMIN_EMAIL = os.environ.get("NPM_ADMIN_EMAIL", "admin@example.com")
+
+
 # Custom exceptions
 class AdminUserNotFoundError(Exception):
     """Raised when the admin user cannot be found in the database."""
@@ -111,13 +116,13 @@ def hash_password(plaintext: str) -> str:
     return hashed.decode('utf-8')
 
 
-def get_admin_user_id(conn: sqlite3.Connection, email: str = "admin@example.com") -> int:
+def get_admin_user_id(conn: sqlite3.Connection, email: str = None) -> int:
     """
     Look up the admin user ID from the user table by email.
     
     Args:
         conn: SQLite connection (with Row factory)
-        email: Email address to look up (default "admin@example.com")
+        email: Email address to look up (default: ADMIN_EMAIL from environment or "admin@example.com")
     
     Returns:
         User ID (integer)
@@ -125,6 +130,8 @@ def get_admin_user_id(conn: sqlite3.Connection, email: str = "admin@example.com"
     Raises:
         AdminUserNotFoundError: If user with given email is not found
     """
+    if email is None:
+        email = ADMIN_EMAIL
     cursor = conn.cursor()
     cursor.execute("SELECT id FROM user WHERE email = ?", (email,))
     row = cursor.fetchone()
