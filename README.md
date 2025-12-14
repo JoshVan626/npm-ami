@@ -90,6 +90,8 @@ Northstar Cloud Solutions LLC is responsible for:
 - Each AMI release is built from a specific repository state and tested prior to publication.
 - Release notes document version changes and known limitations.
 
+**Release notes and AMI IDs:** See [`RELEASES.md`](RELEASES.md) for the authoritative per-version release record (including per-region AMI IDs). The AWS Marketplace listing corresponds to a specific version recorded there.
+
 ---
 
 ## Observability
