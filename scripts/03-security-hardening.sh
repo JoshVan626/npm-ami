@@ -300,6 +300,12 @@ if ! command -v cloud-init >/dev/null 2>&1; then
     exit 1
 fi
 
+# Ensure cloud-init is enabled so first-boot regeneration will run.
+if ! systemctl is-enabled --quiet cloud-init 2>/dev/null; then
+    echo "✗ Error: cloud-init service is not enabled. Run 00-base-packages.sh to enable it before hardening."
+    exit 1
+fi
+
 # Copy cloud-init SSH key regeneration config
 CLOUD_INIT_CFG="/etc/cloud/cloud.cfg.d/99-northstar-sshkeys.cfg"
 CLOUD_INIT_SRC="$AMI_FILES/etc-cloud-cloud.cfg.d/99-northstar-sshkeys.cfg"
@@ -315,6 +321,20 @@ mkdir -p /etc/cloud/cloud.cfg.d
 cp "$CLOUD_INIT_SRC" "$CLOUD_INIT_CFG"
 chown root:root "$CLOUD_INIT_CFG"
 chmod 0644 "$CLOUD_INIT_CFG"
+
+# Validate the config contains both deletion and key generation directives expected by cleanup.
+if ! grep -q '^ssh_deletekeys:[[:space:]]*true' "$CLOUD_INIT_CFG"; then
+    echo "✗ Error: $CLOUD_INIT_CFG is missing ssh_deletekeys: true"
+    exit 1
+fi
+
+if ! grep -Eq '^ssh_genkeytypes:' "$CLOUD_INIT_CFG" \
+    || ! grep -Eq '^[[:space:]]*-[[:space:]]*rsa' "$CLOUD_INIT_CFG" \
+    || ! grep -Eq '^[[:space:]]*-[[:space:]]*ecdsa' "$CLOUD_INIT_CFG" \
+    || ! grep -Eq '^[[:space:]]*-[[:space:]]*ed25519' "$CLOUD_INIT_CFG"; then
+    echo "✗ Error: $CLOUD_INIT_CFG is missing ssh_genkeytypes entries (rsa, ecdsa, ed25519)"
+    exit 1
+fi
 
 # Verify cloud-init is enabled
 systemctl enable cloud-init 2>/dev/null || true

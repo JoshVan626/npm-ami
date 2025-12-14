@@ -10,16 +10,16 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 # Step 1: Update package lists
-echo "[1/4] Updating package lists..."
+echo "[1/5] Updating package lists..."
 apt-get update
 
 echo ""
-echo "[2/4] Upgrading existing packages..."
+echo "[2/5] Upgrading existing packages..."
 apt-get -y upgrade
 
 # Step 2: Install base packages
 echo ""
-echo "[3/4] Installing base packages..."
+echo "[3/5] Installing base packages..."
 
 apt-get install -y \
     curl \
@@ -27,6 +27,7 @@ apt-get install -y \
     ufw \
     fail2ban \
     unattended-upgrades \
+    cloud-init \
     python3 \
     python3-pip \
     sqlite3 \
@@ -39,7 +40,7 @@ echo "✓ Base packages installed successfully"
 
 # Step 3: Install Python bcrypt
 echo ""
-echo "[4/4] Installing Python bcrypt..."
+echo "[4/5] Installing Python bcrypt..."
 
 BCRYPT_METHOD=""
 
@@ -86,6 +87,26 @@ echo "✓ unattended-upgrades configured"
 echo "  - Automatic security updates enabled"
 echo "  - Automatic reboot disabled (manual reboot required)"
 
+# Step 5: Validate cloud-init installation and enablement (required for SSH key rotation)
+echo ""
+echo "[5/5] Verifying cloud-init is installed and enabled..."
+
+if ! command -v cloud-init >/dev/null 2>&1; then
+    echo "✗ Error: cloud-init is not installed even after package install. Aborting."
+    exit 1
+fi
+
+# Ensure the service is enabled for first-boot execution.
+if ! systemctl is-enabled --quiet cloud-init 2>/dev/null; then
+    echo "  Enabling cloud-init service..."
+    if ! systemctl enable cloud-init >/dev/null 2>&1; then
+        echo "✗ Error: Failed to enable cloud-init service. Aborting."
+        exit 1
+    fi
+fi
+
+echo "✓ cloud-init is installed and enabled"
+
 # Summary
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -97,6 +118,7 @@ echo "  - curl, git, ufw, fail2ban, unattended-upgrades"
 echo "  - python3, python3-pip, sqlite3"
 echo "  - awscli, ca-certificates, gnupg, lsb-release"
 echo "  - bcrypt (via $BCRYPT_METHOD)"
+echo "  - cloud-init"
 echo ""
 echo "Next steps:"
 echo "  - Run 01-install-docker.sh to install Docker"

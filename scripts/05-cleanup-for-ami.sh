@@ -192,9 +192,45 @@ swapoff -a 2>/dev/null || true
 rm -f /swapfile 2>/dev/null || true
 rm -f /swap.img 2>/dev/null || true
 
-# Remove SSH host keys
+ensure_cloud_init_ready_for_hostkeys() {
+    local cloud_cfg="/etc/cloud/cloud.cfg.d/99-northstar-sshkeys.cfg"
+
+    if ! command -v cloud-init >/dev/null 2>&1; then
+        echo "✗ Error: cloud-init is not installed. Aborting before deleting SSH host keys."
+        exit 1
+    fi
+
+    if ! systemctl is-enabled --quiet cloud-init 2>/dev/null; then
+        echo "✗ Error: cloud-init service is not enabled. Aborting before deleting SSH host keys."
+        exit 1
+    fi
+
+    if [[ ! -f "$cloud_cfg" ]]; then
+        echo "✗ Error: $cloud_cfg is missing. Aborting before deleting SSH host keys."
+        exit 1
+    fi
+
+    if ! grep -q '^ssh_deletekeys:[[:space:]]*true' "$cloud_cfg"; then
+        echo "✗ Error: $cloud_cfg does not set ssh_deletekeys: true. Aborting host key deletion."
+        exit 1
+    fi
+
+    if ! grep -Eq '^ssh_genkeytypes:' "$cloud_cfg" \
+        || ! grep -Eq '^[[:space:]]*-[[:space:]]*rsa' "$cloud_cfg" \
+        || ! grep -Eq '^[[:space:]]*-[[:space:]]*ecdsa' "$cloud_cfg" \
+        || ! grep -Eq '^[[:space:]]*-[[:space:]]*ed25519' "$cloud_cfg"; then
+        echo "✗ Error: $cloud_cfg is missing ssh_genkeytypes entries (rsa, ecdsa, ed25519). Aborting host key deletion."
+        exit 1
+    fi
+
+    echo "  ✓ cloud-init host key regeneration is configured and enabled"
+}
+
+# Remove SSH host keys only when cloud-init regeneration is confirmed
+echo "  Validating cloud-init host key regeneration safeguards before deletion..."
+ensure_cloud_init_ready_for_hostkeys
 rm -f /etc/ssh/ssh_host_* 2>/dev/null || true
-echo "  ✓ SSH host keys removed (will be regenerated on first boot)"
+echo "  ✓ SSH host keys removed (regeneration will occur on first boot via cloud-init)"
 
 echo "✓ General cleanup completed"
 
