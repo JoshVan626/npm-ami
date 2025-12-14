@@ -10,6 +10,64 @@ Product:
 
 ---
 
+## IAM Permissions (Optional)
+
+CloudWatch integration is **optional**. This AMI functions normally without any AWS IAM permissions. If no instance role is attached (or permissions are missing), the CloudWatch Agent may log permission errors and will not be able to publish logs/metrics.
+
+### What is shipped to CloudWatch by default
+
+**Logs** (CloudWatch Logs group: `/Northstar/npm`):
+
+- `/var/log/syslog`
+- `/var/log/auth.log`
+- `/var/lib/docker/containers/*/*-json.log`
+
+**Metrics** (CloudWatch namespace: `Northstar/System`):
+
+- Disk: used percent on `/`
+- Memory: used percent
+- CPU: idle and iowait
+- Network: bytes in/out on the primary interface (typically `eth0`)
+
+Note: this AMI does **not** create alarms, dashboards, or notifications by default.
+
+### Minimal IAM policy (logs + metrics)
+
+Attach an **instance role** with a policy similar to the following. This uses `Resource: "*"` for simplicity; organizations can tighten this further to match their standards.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CloudWatchLogsWrite",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudWatchMetricsWrite",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:PutMetricData"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+### Troubleshooting permissions
+
+- **Agent logs**: `sudo journalctl -u amazon-cloudwatch-agent.service -n 200 --no-pager`
+- If you see `AccessDenied` or `UnauthorizedOperation`, attach an instance role with the permissions above and restart the agent: `sudo systemctl restart amazon-cloudwatch-agent.service`
+
 ## What the AMI is configured to send
 
 The CloudWatch Agent is installed and configured via:

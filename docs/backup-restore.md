@@ -132,7 +132,69 @@ If CloudWatch Agent is configured, these lines flow to CloudWatch Logs via syslo
 
 ---
 
-## Enabling S3 backups
+## Optional S3 Backups (IAM Required)
+
+S3 uploads are **optional**. Local backups work without IAM permissions. If S3 permissions are missing (or no instance role is attached), the backup will still complete locally and the S3 upload step may log a warning.
+
+We recommend using a **least-privilege instance role** scoped to a dedicated bucket and prefix (example prefix: `npm-backups/`).
+
+### IAM policy template (least privilege)
+
+Replace:
+
+- `YOUR_BUCKET_NAME`
+- `YOUR_PREFIX` (example: `npm-backups`)
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListBucketForPrefix",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetBucketLocation"
+      ],
+      "Resource": "arn:aws:s3:::YOUR_BUCKET_NAME",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": [
+            "YOUR_PREFIX/*"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "PutObjectsInPrefix",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:AbortMultipartUpload"
+      ],
+      "Resource": "arn:aws:s3:::YOUR_BUCKET_NAME/YOUR_PREFIX/*"
+    }
+  ]
+}
+```
+
+### Optional SSE-KMS policy snippet
+
+If your bucket requires SSE-KMS, add a KMS statement (replace `YOUR_KMS_KEY_ARN`):
+
+```json
+{
+  "Sid": "KmsEncryptForS3Backups",
+  "Effect": "Allow",
+  "Action": [
+    "kms:Encrypt",
+    "kms:GenerateDataKey"
+  ],
+  "Resource": "YOUR_KMS_KEY_ARN"
+}
+```
+
+### Configure `/etc/npm-backup.conf`
 
 To enable S3 uploads:
 
@@ -160,6 +222,14 @@ If S3 upload fails, the script will:
 
 - Print a warning
 - Still keep the local backup file
+
+### Troubleshooting S3 permissions
+
+Backup output goes to journald:
+
+```bash
+sudo journalctl -u npm-backup.service -n 200 --no-pager
+```
 
 ---
 
@@ -207,7 +277,7 @@ What `npm-restore` does:
 3. Extract the archive from `/` so the original paths are restored.
 4. Fix ownership on the restored directories.
 5. Start the `npm` service.
-6. Perform a health check against `http://localhost:81/api`.
+6. Perform a health check against the local NPM API endpoint (port 81).
 
 If the health check fails:
 
