@@ -61,6 +61,31 @@ sudo systemctl status fail2ban
 sudo fail2ban-client status sshd
 ```
 
+### Fail2ban: Check Status and Unban an IP
+
+Check fail2ban status:
+
+```bash
+sudo systemctl status fail2ban --no-pager
+sudo fail2ban-client status
+```
+
+Check the SSH jail (commonly named `sshd`):
+
+```bash
+sudo fail2ban-client status sshd
+```
+
+If the jail name differs in your environment, list jails using `sudo fail2ban-client status`.
+
+Unban a specific IP address:
+
+```bash
+sudo fail2ban-client set sshd unbanip <IP_ADDRESS>
+```
+
+Warning: ensure you still have valid SSH key access before changing bans. Prefer allowing only trusted IPs in your EC2 Security Group for port `22/tcp`.
+
 ---
 
 ## Sysctl hardening

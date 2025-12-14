@@ -94,6 +94,39 @@ Common causes:
 
 ---
 
+## First Boot Recovery (Preflight / Init / Post-Init)
+
+Quick status:
+
+- Run: `sudo npm-helper status`
+- The SSH login banner (MOTD) also shows **Initialization Status** at login.
+
+View logs (most recent 200 lines):
+
+```bash
+sudo journalctl -u npm-preflight.service -n 200 --no-pager
+sudo journalctl -u npm-init.service -n 200 --no-pager
+sudo journalctl -u npm-postinit.service -n 200 --no-pager
+sudo journalctl -u npm.service -n 200 --no-pager
+```
+
+Safe re-run commands (after fixing the underlying issue):
+
+```bash
+sudo systemctl start npm-preflight.service
+sudo systemctl start npm-init.service
+sudo systemctl start npm-postinit.service
+```
+
+Common blockers:
+
+- No outbound internet access (image pull fails)
+- Insufficient disk space on `/`
+- Docker daemon not running
+- Security Group or routing prevents reaching port `81/tcp` from your network
+
+---
+
 ## Systemd services
 
 Key services:
