@@ -1,14 +1,14 @@
 [Unit]
-Description=Nginx Proxy Manager First-Boot Initialization
+Description=Northstar NPM preflight checks (first boot)
 Documentation=https://docs.northstar.cloud/npm-ami
-After=npm.service npm-preflight.service
-Requires=npm.service npm-preflight.service
+Wants=network-online.target
+After=network-online.target docker.service
+Before=npm-init.service
 ConditionPathExists=!/var/lib/npm-init-complete
 
 [Service]
 Type=oneshot
-RemainAfterExit=yes
-ExecStart=/usr/local/bin/npm-init.py
+ExecStart=/usr/local/bin/npm-preflight
 StandardOutput=journal
 StandardError=journal
 

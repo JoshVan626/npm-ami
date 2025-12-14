@@ -43,6 +43,11 @@ SENTINEL_LAST_RUN = f"{BACKUP_STATE_DIR}/backup-last-run"
 SENTINEL_LAST_SUCCESS = f"{BACKUP_STATE_DIR}/backup-last-success"
 SENTINEL_LAST_FAILURE = f"{BACKUP_STATE_DIR}/backup-last-failure"
 
+# First-boot status files
+PREFLIGHT_STATUS = f"{BACKUP_STATE_DIR}/preflight-status"
+POSTINIT_STATUS = f"{BACKUP_STATE_DIR}/postinit-status"
+INIT_MARKER_FILE = "/var/lib/npm-init-complete"
+
 
 def cmd_show_admin():
     """
@@ -287,6 +292,11 @@ def cmd_status():
     backup_last_run = read_sentinel_file(SENTINEL_LAST_RUN)
     backup_last_success = read_sentinel_file(SENTINEL_LAST_SUCCESS)
     backup_last_failure = read_sentinel_file(SENTINEL_LAST_FAILURE)
+
+    # Read first-boot status
+    preflight_status = read_sentinel_file(PREFLIGHT_STATUS)
+    postinit_status = read_sentinel_file(POSTINIT_STATUS)
+    init_complete = Path(INIT_MARKER_FILE).exists()
     
     # Print status summary
     print("NPM System Status")
@@ -295,6 +305,20 @@ def cmd_status():
     print(f"npm service:      {status_info['npm']}")
     print(f"NPM container:    {status_info['container']}")
     print("=" * 50)
+    print("")
+    print("Initialization Status")
+    print("-" * 50)
+    if preflight_status:
+        print(f"Preflight:       {preflight_status}")
+    else:
+        print("Preflight:       not yet run")
+    print(f"Init:            {'complete' if init_complete else 'incomplete'}")
+    if postinit_status:
+        print(f"Post-init:       {postinit_status}")
+    else:
+        print("Post-init:       not yet run")
+    print("-" * 50)
+
     print("")
     print("Backup Status")
     print("-" * 50)

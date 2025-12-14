@@ -7,6 +7,17 @@ run in production.
 
 ## NPM Initialization (First Boot)
 
+On first boot, the boot flow is:
+
+- `npm-preflight.service` → fast checks and clear failure reasons
+- `npm-init.service` → one-time credential initialization
+- `npm-postinit.service` → post-init health summary
+
+You can see the current state in:
+
+- The SSH login banner (MOTD) under **Initialization Status**
+- `sudo npm-helper status`
+
 On first boot, `npm-init.service` runs once to:
 
 1. Wait for the NPM SQLite database to become ready (up to ~300 seconds)
@@ -50,11 +61,23 @@ web UI.
 If NPM doesn't come up after first boot:
 
 ```bash
+# Preflight status + logs (runs before init)
+sudo systemctl status npm-preflight.service
+sudo journalctl -u npm-preflight.service -n 200 --no-pager
+
 # Check init service status
 sudo systemctl status npm-init
 
 # View detailed init logs
 sudo journalctl -u npm-init -xe
+
+# Post-init status + logs (runs after init)
+sudo systemctl status npm-postinit.service
+sudo journalctl -u npm-postinit.service -n 200 --no-pager
+
+# If post-init failed and you want to re-run it after fixing the issue:
+sudo rm -f /var/lib/northstar/npm/postinit-ok /var/lib/northstar/npm/postinit-status
+sudo systemctl start npm-postinit.service
 
 # Restart the NPM stack
 sudo systemctl restart npm
@@ -77,7 +100,9 @@ Key services:
 
 - `docker.service` – Docker engine
 - `npm.service` – NPM Docker stack
+- `npm-preflight.service` – first-boot preflight checks
 - `npm-init.service` – one-time first-boot initialization
+- `npm-postinit.service` – first-boot post-init health summary
 - `npm-backup.timer` – daily backup timer
 - `amazon-cloudwatch-agent.service` – CloudWatch log shipping
 

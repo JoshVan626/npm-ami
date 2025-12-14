@@ -64,7 +64,7 @@ echo ""
 echo "[3/6] Installing Python helper scripts and diagnostics..."
 
 PYTHON_SCRIPTS=("npm-init.py" "npm-helper" "npm_common.py")
-BASH_SCRIPTS=("npm-backup" "npm-restore" "npm-diagnostics" "npm-support-bundle")
+BASH_SCRIPTS=("npm-backup" "npm-restore" "npm-diagnostics" "npm-support-bundle" "npm-preflight" "npm-postinit")
 
 # Copy Python scripts
 for script in "${PYTHON_SCRIPTS[@]}"; do
@@ -129,6 +129,8 @@ echo "[5/6] Installing systemd units..."
 SYSTEMD_UNITS=(
     "npm.service"
     "npm-init.service"
+    "npm-preflight.service"
+    "npm-postinit.service"
     "npm-backup.service"
     "npm-backup.timer"
 )
@@ -170,6 +172,22 @@ if systemctl enable npm-init.service --quiet; then
     echo "  ✓ Enabled: npm-init.service"
 else
     echo "  ✗ Error: Failed to enable npm-init.service"
+    exit 1
+fi
+
+if systemctl enable npm-preflight.service --quiet; then
+    ENABLED_UNITS+=("npm-preflight.service")
+    echo "  ✓ Enabled: npm-preflight.service"
+else
+    echo "  ✗ Error: Failed to enable npm-preflight.service"
+    exit 1
+fi
+
+if systemctl enable npm-postinit.service --quiet; then
+    ENABLED_UNITS+=("npm-postinit.service")
+    echo "  ✓ Enabled: npm-postinit.service"
+else
+    echo "  ✗ Error: Failed to enable npm-postinit.service"
     exit 1
 fi
 

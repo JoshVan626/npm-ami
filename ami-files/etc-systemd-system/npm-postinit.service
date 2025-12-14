@@ -1,0 +1,17 @@
+[Unit]
+Description=Northstar NPM post-init health summary (first boot)
+Documentation=https://docs.northstar.cloud/npm-ami
+Wants=network-online.target
+After=network-online.target docker.service npm.service npm-init.service
+ConditionPathExists=/var/lib/npm-init-complete
+ConditionPathExists=!/var/lib/northstar/npm/postinit-ok
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/npm-postinit
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+

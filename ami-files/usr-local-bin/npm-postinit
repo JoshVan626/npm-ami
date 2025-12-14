@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# NPM post-init health summary (first boot)
+# Purpose: make first-boot success/failure obvious and self-diagnosing.
+
+set -euo pipefail
+
+START_TIME=$(date +%s)
+
+STATE_DIR="/var/lib/northstar/npm"
+STATUS_FILE="${STATE_DIR}/postinit-status"
+OK_MARKER="${STATE_DIR}/postinit-ok"
+INIT_MARKER="/var/lib/npm-init-complete"
+CONTAINER_NAME="nginx-proxy-manager"  # from /opt/npm/docker-compose.yml (preferred)
+STACK_DIR="/opt/npm"
+COMPOSE_SERVICE="app"
+
+# Fixed, non-sensitive failure reasons:
+# - container_missing
+# - container_not_running
+# - container_unhealthy
+# - ui_unreachable
+# - curl_missing
+
+ensure_state_dir() {
+  mkdir -p "$STATE_DIR"
+  chown root:root "$STATE_DIR" 2>/dev/null || true
+  chmod 0750 "$STATE_DIR" 2>/dev/null || true
+}
+
+write_status() {
+  printf '%s\n' "$1" > "$STATUS_FILE"
+  chown root:root "$STATUS_FILE" 2>/dev/null || true
+  chmod 0640 "$STATUS_FILE" 2>/dev/null || true
+}
+
+write_ok_marker() {
+  : > "$OK_MARKER"
+  chown root:root "$OK_MARKER" 2>/dev/null || true
+  chmod 0640 "$OK_MARKER" 2>/dev/null || true
+}
+
+clear_ok_marker() {
+  rm -f "$OK_MARKER" 2>/dev/null || true
+}
+
+emit_and_exit() {
+  # $1: success|failure
+  # $2: reason
+  # $3: exit_code
+  local end_time duration
+  end_time=$(date +%s)
+  duration=$((end_time - START_TIME))
+
+  if [[ "$1" == "success" ]]; then
+    echo "NORTHSTAR_POSTINIT status=success duration_s=${duration}"
+  else
+    echo "NORTHSTAR_POSTINIT status=failure reason=$2 duration_s=${duration}"
+  fi
+
+  exit "$3"
+}
+
+fail() {
+  local reason ts
+  reason="$1"
+  ts=$(date -Iseconds)
+  clear_ok_marker
+  write_status "FAIL ${ts} reason=${reason}"
+  emit_and_exit "failure" "$reason" 1
+}
+
+resolve_container_ref() {
+  # Prefer explicit container name from compose; if missing/changed, fall back to docker compose ps -q.
+  if docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
+    echo "$CONTAINER_NAME"
+    return 0
+  fi
+
+  if [[ -d "$STACK_DIR" ]]; then
+    cid="$(cd "$STACK_DIR" && docker compose ps -q "$COMPOSE_SERVICE" 2>/dev/null | head -n 1 || true)"
+    if [[ -n "${cid:-}" ]]; then
+      echo "$cid"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+main() {
+  ensure_state_dir
+
+  # If init hasn't completed, do nothing (unit also gates this)
+  if [[ ! -f "$INIT_MARKER" ]]; then
+    # Not a failure; just not applicable yet.
+    exit 0
+  fi
+
+  if ! command -v curl >/dev/null 2>&1; then
+    fail "curl_missing"
+  fi
+
+  container_ref="$(resolve_container_ref || true)"
+
+  # Container must exist (by name or by compose lookup)
+  if [[ -z "${container_ref:-}" ]]; then
+    fail "container_missing"
+  fi
+
+  # Must be running
+  if [[ "$(docker inspect -f '{{.State.Running}}' "$container_ref" 2>/dev/null || echo false)" != "true" ]]; then
+    fail "container_not_running"
+  fi
+
+  # Healthcheck if present (wait a short time for healthy)
+  health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container_ref" 2>/dev/null || echo none)
+  if [[ "$health" != "none" ]]; then
+    # Allow up to ~20s to become healthy
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      health=$(docker inspect -f '{{.State.Health.Status}}' "$container_ref" 2>/dev/null || echo unknown)
+      if [[ "$health" == "healthy" ]]; then
+        break
+      fi
+      if [[ "$health" == "unhealthy" ]]; then
+        fail "container_unhealthy"
+      fi
+      sleep 2
+    done
+    if [[ "$health" != "healthy" ]]; then
+      fail "container_unhealthy"
+    fi
+  fi
+
+  # Local UI check (fast)
+  if ! curl -fsS --max-time 2 http://127.0.0.1:81/ >/dev/null 2>&1; then
+    # retry briefly (container may be healthy but UI still warming)
+    sleep 2
+    if ! curl -fsS --max-time 2 http://127.0.0.1:81/ >/dev/null 2>&1; then
+      fail "ui_unreachable"
+    fi
+  fi
+
+  write_status "OK $(date -Iseconds)"
+  write_ok_marker
+  emit_and_exit "success" "" 0
+}
+
+main "$@"
+

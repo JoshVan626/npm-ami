@@ -1,0 +1,200 @@
+#!/usr/bin/env bash
+# NPM first-boot preflight checks
+# Purpose: fail fast with clear, non-sensitive reasons before first-boot init runs.
+
+set -euo pipefail
+
+START_TIME=$(date +%s)
+
+# ===== Config =====
+MIN_ROOT_FREE_GB=4
+STATE_DIR="/var/lib/northstar/npm"
+STATUS_FILE="${STATE_DIR}/preflight-status"
+MOTD_SNIPPET="/etc/update-motd.d/40-northstar-init-status"
+INIT_MARKER="/var/lib/npm-init-complete"
+COMPOSE_FILE="/opt/npm/docker-compose.yml"
+DEFAULT_IMAGE="jc21/nginx-proxy-manager:2.13.5"  # Must match /opt/npm/docker-compose.yml
+CONTAINER_NAME="nginx-proxy-manager"
+
+# Fixed, non-sensitive failure reasons
+# - disk_low
+# - docker_inactive
+# - compose_missing
+# - image_pull_failed
+# - dir_not_writable
+# - curl_missing
+
+ensure_state_dir() {
+  mkdir -p "$STATE_DIR"
+  chown root:root "$STATE_DIR"
+  chmod 0750 "$STATE_DIR"
+}
+
+write_status() {
+  # $1: content
+  printf '%s\n' "$1" > "$STATUS_FILE"
+  chown root:root "$STATUS_FILE" 2>/dev/null || true
+  chmod 0640 "$STATUS_FILE" 2>/dev/null || true
+}
+
+emit_and_exit() {
+  # $1: success|failure
+  # $2: detail (path or reason)
+  # $3: exit_code
+  local end_time duration
+  end_time=$(date +%s)
+  duration=$((end_time - START_TIME))
+
+  if [[ "$1" == "success" ]]; then
+    echo "NORTHSTAR_PREFLIGHT status=success duration_s=${duration}"
+  else
+    echo "NORTHSTAR_PREFLIGHT status=failure reason=$2"
+  fi
+
+  exit "$3"
+}
+
+fail() {
+  # $1: fixed reason
+  local ts
+  ts=$(date -Iseconds)
+  write_status "FAIL ${ts} reason=$1"
+  emit_and_exit "failure" "$1" 1
+}
+
+# Install/refresh a safe MOTD snippet (no secrets). This ensures failures are visible over SSH.
+install_motd_snippet() {
+  mkdir -p /etc/update-motd.d
+  cat > "$MOTD_SNIPPET" <<'EOF'
+#!/bin/sh
+# Northstar NPM AMI - Initialization Status (safe, no secrets)
+
+STATE_DIR="/var/lib/northstar/npm"
+PREFLIGHT="${STATE_DIR}/preflight-status"
+POSTINIT="${STATE_DIR}/postinit-status"
+INIT_MARKER="/var/lib/npm-init-complete"
+
+read_one_line() {
+  f="$1"
+  if [ -f "$f" ]; then
+    # print first line only
+    sed -n '1p' "$f" 2>/dev/null
+  fi
+}
+
+preflight_line=$(read_one_line "$PREFLIGHT")
+postinit_line=$(read_one_line "$POSTINIT")
+
+# Determine init status
+if [ -f "$INIT_MARKER" ]; then
+  init_status="complete"
+else
+  init_status="incomplete"
+fi
+
+# Only show block if any status is present or init is incomplete
+if [ "$init_status" = "incomplete" ] || [ -n "$preflight_line" ] || [ -n "$postinit_line" ]; then
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "  Initialization Status"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  if [ -n "$preflight_line" ]; then
+    echo "  Preflight:  $preflight_line"
+  else
+    echo "  Preflight:  (not yet run)"
+  fi
+
+  echo "  Init:       $init_status"
+
+  if [ -n "$postinit_line" ]; then
+    echo "  Post-init:  $postinit_line"
+  else
+    echo "  Post-init:  (not yet run)"
+  fi
+
+  # Next steps if preflight/postinit failed
+  echo ""
+  if echo "$preflight_line" | grep -q '^FAIL '; then
+    echo "  Next steps: sudo journalctl -u npm-preflight.service -n 200 --no-pager"
+  elif [ "$init_status" = "incomplete" ]; then
+    echo "  Next steps: sudo journalctl -u npm-init.service -n 200 --no-pager"
+  elif echo "$postinit_line" | grep -q '^FAIL '; then
+    echo "  Next steps: sudo journalctl -u npm-postinit.service -n 200 --no-pager"
+    echo "             sudo rm -f /var/lib/northstar/npm/postinit-ok /var/lib/northstar/npm/postinit-status && sudo systemctl start npm-postinit.service"
+  fi
+
+  echo ""
+fi
+EOF
+  chmod 0755 "$MOTD_SNIPPET"
+  chown root:root "$MOTD_SNIPPET" 2>/dev/null || true
+}
+
+main() {
+  ensure_state_dir
+  install_motd_snippet
+
+  # If init already completed, do nothing (unit also gates this, but keep script safe)
+  if [[ -f "$INIT_MARKER" ]]; then
+    write_status "OK $(date -Iseconds)"
+    emit_and_exit "success" "" 0
+  fi
+
+  # Disk free on /
+  # df -Pk reports available in KiB
+  local avail_kb min_kb
+  avail_kb=$(df -Pk / | awk 'NR==2 {print $4}')
+  min_kb=$((MIN_ROOT_FREE_GB * 1024 * 1024))
+  if [[ -z "$avail_kb" ]] || [[ "$avail_kb" -lt "$min_kb" ]]; then
+    fail "disk_low"
+  fi
+
+  # Docker daemon active
+  if ! systemctl is-active --quiet docker; then
+    fail "docker_inactive"
+  fi
+
+  # docker compose plugin available
+  if ! docker compose version >/dev/null 2>&1; then
+    fail "compose_missing"
+  fi
+
+  # Ensure required directories exist and are writable
+  for d in /opt/npm /opt/npm/data /opt/npm/letsencrypt; do
+    if [[ ! -d "$d" ]]; then
+      mkdir -p "$d" 2>/dev/null || fail "dir_not_writable"
+    fi
+    if [[ ! -w "$d" ]]; then
+      fail "dir_not_writable"
+    fi
+  done
+
+  # Determine pinned image from compose file if possible
+  local image
+  image=""
+  if [[ -f "$COMPOSE_FILE" ]]; then
+    image=$(grep -E '^[[:space:]]*image:' "$COMPOSE_FILE" 2>/dev/null | sed -E 's/^[[:space:]]*image:[[:space:]]*"?([^" ]+)"?.*$/\1/' | head -n 1)
+  fi
+  if [[ -z "$image" ]]; then
+    image="$DEFAULT_IMAGE"
+  fi
+
+  # Ensure image exists locally or is pullable (quiet)
+  if ! docker image inspect "$image" >/dev/null 2>&1; then
+    if ! docker pull "$image" >/dev/null 2>&1; then
+      fail "image_pull_failed"
+    fi
+  fi
+
+  # Host curl should be present (used for post-init check later and general support)
+  if ! command -v curl >/dev/null 2>&1; then
+    fail "curl_missing"
+  fi
+
+  write_status "OK $(date -Iseconds)"
+  emit_and_exit "success" "" 0
+}
+
+main "$@"
+
