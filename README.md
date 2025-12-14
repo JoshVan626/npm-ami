@@ -1,6 +1,6 @@
 # Nginx Proxy Manager – Hardened Edition (Ubuntu 22.04)
 
-**By Northstar Cloud Solutions**
+**By Northstar Cloud Solutions LLC**
 
 A hardened, ready-to-run AWS AMI that provides a secure Nginx Proxy Manager instance with Docker, automatic credential generation, built-in backups, and CloudWatch integration.
 
@@ -8,210 +8,145 @@ A hardened, ready-to-run AWS AMI that provides a secure Nginx Proxy Manager inst
 
 ## Overview
 
-This repository contains all the files, scripts, and documentation needed to build the **Nginx Proxy Manager – Hardened Edition (Ubuntu 22.04)** AMI for AWS Marketplace.
+This repository contains documentation and supporting artifacts for the **Nginx Proxy Manager – Hardened Edition (Ubuntu 22.04)** Amazon Machine Image (AMI), published by **Northstar Cloud Solutions LLC** on AWS Marketplace.
 
-### What This AMI Provides
+The AMI is designed to provide a secure, reproducible, and low-maintenance **single-node** Nginx Proxy Manager environment with strong defaults and minimal operational overhead.
+
+This repository is **not** intended to be a general-purpose installation guide. Customers are expected to launch the AMI directly from AWS Marketplace.
+
+---
+
+## What This AMI Provides
 
 - **Secure Ubuntu 22.04 LTS** base with hardening applied
 - **Docker Engine + Docker Compose** pre-installed
-- **Nginx Proxy Manager** in a Docker container (pinned version)
-- **Automatic first-boot setup** with secure password generation
-- **Built-in backup & restore** tools (local + optional S3)
-- **CloudWatch integration** for logs and metrics
+- **Nginx Proxy Manager** running in a pinned Docker image
+- **Automatic first-boot initialization** with secure credential generation
+- **Built-in backup & restore tooling** (local + optional S3)
+- **Amazon CloudWatch integration** for logs and metrics
 - **Security hardening** (SSH, UFW, fail2ban, sysctl)
-- **Operational tools** (`npm-helper`, `npm-diagnostics`, `npm-support-bundle`)
+- **Operational helper tools**:
+  - `npm-helper`
+  - `npm-backup`
+  - `npm-restore`
+  - `npm-diagnostics`
+  - `npm-support-bundle`
 
 ---
 
-## Quick Start
+## Getting Started (AMI Users)
 
-### For Builders (Creating the AMI)
-
-1. **Prerequisites:**
-   - AWS account with EC2 access
-   - Ubuntu 22.04 EC2 instance (builder instance)
-   - Git installed
-
-2. **Clone this repository:**
-   ```bash
-   git clone <repository-url>
-   cd npm-ami
-   ```
-
-3. **Follow the build runbook:**
-   - See [`build-runbook.md`](build-runbook.md) for detailed instructions
-   - Run scripts `00-05` in order on a fresh Ubuntu 22.04 instance
-   - Create AMI snapshot after running cleanup script
-
-4. **Test the AMI:**
-   - See [`docs/testing-checklist.md`](docs/testing-checklist.md) for validation steps
-   - Launch a new instance from the AMI
-   - Verify all functionality works
-
-### For Users (Using the AMI)
+After launching the AMI from AWS Marketplace:
 
 - **Quickstart Guide:** [`docs/quickstart.md`](docs/quickstart.md)
-- **Full Documentation:** [`docs/index.md`](docs/index.md)
+- **Documentation Index:** [`docs/index.md`](docs/index.md)
+
+The Quickstart covers:
+- First login and credential retrieval
+- Accessing the Nginx Proxy Manager UI
+- Basic security and networking requirements
 
 ---
 
-## Repository Structure
+## Shared Responsibility Model
 
-```
-npm-ami/
-├── README.md                    # This file
-├── build-runbook.md            # Build instructions
-├── product-spec.md             # Product specification
-├── ami-files/                  # Files that go into the AMI
-│   ├── opt-npm/                # NPM Docker Compose config
-│   ├── usr-local-bin/          # Helper scripts (npm-helper, etc.)
-│   ├── etc-systemd-system/     # Systemd service units
-│   ├── etc-fail2ban/           # Fail2ban configuration
-│   ├── etc-sysctl.d/           # Sysctl hardening
-│   ├── etc/                    # Config files (issue.net, backup config)
-│   └── opt-aws/                # CloudWatch Agent config
-├── scripts/                    # Build scripts (run in order 00-05)
-│   ├── 00-base-packages.sh
-│   ├── 01-install-docker.sh
-│   ├── 02-setup-npm-stack.sh
-│   ├── 03-security-hardening.sh
-│   ├── 04-cloudwatch-setup.sh
-│   └── 05-cleanup-for-ami.sh
-└── docs/                       # User and builder documentation
-    ├── index.md                # Documentation index
-    ├── quickstart.md           # Getting started guide
-    ├── operations.md           # CLI tools and services
-    ├── backup-restore.md       # Backup/restore guide
-    ├── security.md             # Security features
-    ├── monitoring-and-metrics.md # CloudWatch setup
-    ├── upgrades.md             # Upgrade procedures
-    ├── troubleshooting.md      # Common issues
-    ├── testing-checklist.md    # AMI validation checklist
-    └── ...
-```
+This AMI provides a hardened **single-node** Nginx Proxy Manager environment.
+
+### Customer Responsibilities
+
+Customers are responsible for:
+- AWS VPC networking and security group configuration
+- DNS configuration and domain ownership
+- TLS certificate issuance and renewal within Nginx Proxy Manager
+- IAM roles and permissions for optional S3 backups and CloudWatch access
+- Ongoing proxy, host, and certificate configuration inside the NPM UI
+
+### Vendor Responsibilities
+
+Northstar Cloud Solutions LLC is responsible for:
+- AMI build integrity and reproducibility
+- First-boot automation and credential generation
+- Secure default configuration and OS hardening
+- Documented backup and restore tooling
+- Pinned and tested application versions at release time
 
 ---
 
-## Documentation
+## Maintenance, Updates, and Upgrades
 
-### For Builders
+### Operating System Updates
+- Ubuntu security updates are applied automatically via `unattended-upgrades`.
+- Major OS upgrades are not performed automatically.
 
-- **[Build Runbook](build-runbook.md)** - Step-by-step AMI build process
-- **[Testing Checklist](docs/testing-checklist.md)** - Validation steps before publishing
-- **[Product Specification](product-spec.md)** - Complete product requirements
+### Application Versioning
+- Nginx Proxy Manager is deployed using a pinned Docker image version.
+- Application containers are **not** automatically upgraded.
 
-### For Users
+### Upgrades
+- The recommended upgrade path is to launch a newer AMI version and restore from backup.
+- In-place upgrades are optional and documented, but not automatic.
 
-- **[Documentation Index](docs/index.md)** - Start here for user docs
-- **[Quickstart](docs/quickstart.md)** - Get running in minutes
-- **[Operations](docs/operations.md)** - CLI tools and services
-- **[Backup & Restore](docs/backup-restore.md)** - Data protection
-- **[Security](docs/security.md)** - Security features explained
-- **[Monitoring & Metrics](docs/monitoring-and-metrics.md)** - CloudWatch setup
-- **[Upgrades](docs/upgrades.md)** - Upgrade procedures
-- **[Troubleshooting](docs/troubleshooting.md)** - Common issues and solutions
-
----
-
-## Key Features
-
-### Security
-
-- SSH key-only authentication (password auth disabled)
-- Root login disabled
-- UFW firewall with minimal open ports (22, 80, 81, 443)
-- Fail2ban for SSH protection
-- Conservative sysctl network hardening
-- Unique SSH host keys per instance
-
-### First Boot Automation
-
-- Automatic NPM container startup
-- Secure random admin password generation
-- Credentials displayed in SSH login banner (MOTD)
-- One-time initialization (never runs twice)
-
-### Operational Tools
-
-- **`npm-helper`** - Show/rotate admin credentials, check status
-- **`npm-backup`** - Create backups (local + optional S3)
-- **`npm-restore`** - Restore from backup archives
-- **`npm-diagnostics`** - System health check
-- **`npm-support-bundle`** - Collect diagnostics for support
-
-### Observability
-
-- CloudWatch Logs: `/Northstar/npm` log group
-- CloudWatch Metrics: `Northstar/System` namespace
-- System logs (syslog, auth.log)
-- Memory and disk usage metrics
+### Release Policy
+- Each AMI release is built from a specific repository state and tested prior to publication.
+- Release notes document version changes and known limitations.
 
 ---
 
-## Build Process
+## Observability
 
-The AMI is built by running numbered scripts in sequence on a fresh Ubuntu 22.04 EC2 instance:
-
-1. **`00-base-packages.sh`** - Install base packages and dependencies
-2. **`01-install-docker.sh`** - Install Docker Engine and Compose
-3. **`02-setup-npm-stack.sh`** - Copy NPM files and configure systemd
-4. **`03-security-hardening.sh`** - Apply SSH, UFW, fail2ban, sysctl configs
-5. **`04-cloudwatch-setup.sh`** - Install and configure CloudWatch Agent
-6. **`05-cleanup-for-ami.sh`** - Remove instance-specific data before snapshot
-
-After running all scripts, create an AMI snapshot from the instance.
-
-See [`build-runbook.md`](build-runbook.md) for detailed instructions.
-
----
-
-## Testing
-
-Before publishing the AMI, validate it using the comprehensive checklist:
-
-- **[Testing Checklist](docs/testing-checklist.md)**
-
-This covers:
-- Pre-build validation
-- Build process verification
-- First boot testing
-- Functional validation
-- Security validation
-- AMI snapshot testing
+- **CloudWatch Logs**
+  - Log group: `/Northstar/npm`
+  - System logs (`syslog`, `auth.log`)
+- **CloudWatch Metrics**
+  - Namespace: `Northstar/System`
+  - Memory and disk usage
 
 ---
 
 ## Support
 
-For issues, questions, or support requests related to this AMI:
+Support is provided on a **best-effort basis**.
 
-- **Documentation:** See [`docs/`](docs/) directory
-- **Troubleshooting:** [`docs/troubleshooting.md`](docs/troubleshooting.md)
-- **Support:** Contact Northstar Cloud Solutions support
+**Support contact:**  
+📧 **support@northstarcloud.io**
+
+Support includes:
+- AMI initialization issues
+- Credential recovery using provided tools
+- Documented backup and restore workflows
+- Clarification of documented behavior
+
+Support does **not** include:
+- Custom Nginx or proxy configuration
+- DNS, TLS, or domain troubleshooting
+- Third-party plugins or integrations
+
+When contacting support, please include:
+- AWS region
+- AMI version (if applicable)
+- Output of `npm-helper status`
+- Relevant CloudWatch log excerpts
 
 ---
 
-## License & Copyright
+## Licensing
 
-Copyright © Northstar Cloud Solutions. All rights reserved.
+This repository contains proprietary automation, scripts, and documentation
+owned by **Northstar Cloud Solutions LLC**.
 
-This AMI is provided for use on AWS Marketplace. See product listing for terms and conditions.
+The resulting AMI includes third-party software (including Ubuntu Linux,
+Docker, Nginx, and Nginx Proxy Manager), each licensed under their respective
+licenses.
+
+See the [`LICENSE`](LICENSE) file for full terms.
 
 ---
 
 ## Product Information
 
-- **Product Name:** Nginx Proxy Manager – Hardened Edition (Ubuntu 22.04) by Northstar Cloud Solutions
+- **Product Name:** Nginx Proxy Manager – Hardened Edition (Ubuntu 22.04)
+- **Vendor:** Northstar Cloud Solutions LLC
 - **Base OS:** Ubuntu Server 22.04 LTS
-- **NPM Version:** Pinned to tested Docker image tag (see `ami-files/opt-npm/docker-compose.yml`)
+- **NPM Version:** Pinned Docker image (see documentation)
 - **CloudWatch Log Group:** `/Northstar/npm`
 - **CloudWatch Metrics Namespace:** `Northstar/System`
-
----
-
-## Contributing
-
-This repository is for building the official AMI. For feature requests or bug reports, please contact Northstar Cloud Solutions support.
-
-
-

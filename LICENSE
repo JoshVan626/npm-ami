@@ -1,0 +1,25 @@
+Copyright (c) 2025 Northstar Cloud Solutions LLC
+
+All rights reserved.
+
+This repository contains original scripts, configuration, automation logic,
+and documentation created by Northstar Cloud Solutions LLC for the purpose
+of building and operating an Amazon Machine Image (AMI).
+
+The AMI produced by this repository includes third-party software, including
+but not limited to Ubuntu Linux, Docker, Nginx, and Nginx Proxy Manager.
+Such third-party software is licensed under its respective open source or
+commercial licenses and is not owned by Northstar Cloud Solutions LLC.
+
+Permission is granted to customers who obtain the resulting AMI through the
+AWS Marketplace to use, modify, and operate the AMI for their internal
+business purposes, subject to the terms of the applicable AWS Marketplace
+listing and the licenses of the included third-party software.
+
+Redistribution, resale, sublicensing, or publication of this repository or
+derived AMIs outside of AWS Marketplace is prohibited without prior written
+permission from Northstar Cloud Solutions LLC.
+
+THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
