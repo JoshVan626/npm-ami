@@ -154,6 +154,7 @@ After creating the AMI and launching a new instance from it:
 - [ ] `/var/lib/npm-init-complete` marker file exists
 - [ ] `/root/npm-admin-credentials.txt` exists with credentials
 - [ ] MOTD script `/etc/update-motd.d/50-npm-info` exists
+- [ ] Python helper scripts execute (syntax check): `python3 -m py_compile /usr/local/bin/npm-init.py /usr/local/bin/npm_common.py /usr/local/bin/npm-helper`
 - [ ] MOTD displays on SSH login with:
   - [ ] Product name
   - [ ] Admin URL (with IP address)
