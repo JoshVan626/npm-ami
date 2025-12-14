@@ -138,13 +138,17 @@ The MOTD script that displays login credentials is **not** shipped as a static f
    
    # Script 04: CloudWatch setup
    sudo ./scripts/04-cloudwatch-setup.sh
+
+   # Script 06: Validation gate (recommended before cleanup/imaging)
+   # This fails fast on broken systemd units, missing payload files, or Python helper syntax errors.
+   sudo ./scripts/06-validate.sh
    
    # Script 05: Cleanup for AMI (WARNING: prepares for snapshot)
    sudo ./scripts/05-cleanup-for-ami.sh
    ```
    
    **Important:** 
-   - Run scripts in order (00 through 05)
+   - Run scripts in order (00 through 05), and run the validation gate before cleanup/imaging
    - Wait for each script to complete before running the next
    - Review output for any errors or warnings
    - Script 05 will prompt for confirmation before proceeding
