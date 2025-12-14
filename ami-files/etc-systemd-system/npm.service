@@ -1,15 +1,18 @@
 [Unit]
 Description=Nginx Proxy Manager Docker Stack
 Documentation=https://docs.northstar.cloud/npm-ami
-After=docker.service
+After=network-online.target docker.service
+Wants=network-online.target
 Requires=docker.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/opt/npm
-ExecStart=/usr/bin/docker compose up -d
+ExecStart=/usr/local/bin/npm-stack-start
 ExecStop=/usr/bin/docker compose stop
+Restart=on-failure
+RestartSec=20s
 StandardOutput=journal
 StandardError=journal
 

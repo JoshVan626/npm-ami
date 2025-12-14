@@ -31,6 +31,14 @@ sudo journalctl -u amazon-cloudwatch-agent
 sudo systemctl restart npm
 ```
 
+`npm.service` will retry automatically if `docker compose up -d` or the follow-up
+container health check fails (e.g., transient network/pull issues). If the stack
+is not coming up, check:
+
+- `sudo systemctl status npm` for recent restart attempts
+- `sudo journalctl -u npm` for compose output and container state summaries
+- `docker compose ps` in `/opt/npm` to see per-container status
+
 ---
 
 ## CLI: npm-helper
