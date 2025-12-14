@@ -150,7 +150,7 @@ The result is a **self-contained reverse proxy appliance** that can be launched 
     - System logs (e.g., `/var/log/syslog`, `/var/log/auth.log`).  
     - NPM logs from a host-mounted directory (e.g., `/var/log/npm/*`).  
   - Log group naming convention such as:  
-    - Log group: `/Northstar/npm`  
+    - Log group: `/northstar-cloud-solutions/npm`
     - Log streams including the instance ID (e.g., `<instance-id>-system`, `<instance-id>-npm`).
 
 - **NPM helper CLI tool**

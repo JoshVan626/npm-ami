@@ -16,13 +16,13 @@ CloudWatch integration is **optional**. This AMI functions normally without any 
 
 ### What is shipped to CloudWatch by default
 
-**Logs** (CloudWatch Logs group: `/Northstar/npm`):
+**Logs** (CloudWatch Logs group: `/northstar-cloud-solutions/npm`):
 
 - `/var/log/syslog`
 - `/var/log/auth.log`
 - `/var/lib/docker/containers/*/*-json.log`
 
-**Metrics** (CloudWatch namespace: `Northstar/System`):
+**Metrics** (CloudWatch namespace: `NorthstarCloudSolutions/System`):
 
 - Disk: used percent on `/`
 - Memory: used percent
@@ -89,7 +89,7 @@ Send these log files:
 to the CloudWatch Logs **log group**:
 
 ```text
-/Northstar/npm
+/northstar-cloud-solutions/npm
 ```
 
 Each instance uses separate log streams, for example:
@@ -102,7 +102,7 @@ Each instance uses separate log streams, for example:
 
 Publish basic system metrics under the CloudWatch namespace:
 
-**Northstar/System**
+**NorthstarCloudSolutions/System**
 
 The AMI's default config collects:
 

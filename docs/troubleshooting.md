@@ -102,7 +102,7 @@ Remember: even if S3 upload fails, local backups are still created in
 
 4. In the AWS Console, navigate to:
 
-   - CloudWatch → Logs → Log groups → `/Northstar/npm`
+   - CloudWatch → Logs → Log groups → `/northstar-cloud-solutions/npm`
 
 If the agent is running but logs are missing, IAM permissions are the most common cause.
 

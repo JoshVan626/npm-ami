@@ -224,14 +224,14 @@ The CloudWatch Agent is configured to ship:
 into a log group named:
 
 ```text
-/Northstar/npm
+/northstar-cloud-solutions/npm
 ```
 
 with per-instance log streams (e.g. `{instance_id}-syslog`, `{instance_id}-auth`).
 
 You can view these in:
 
-- AWS Console → CloudWatch → Logs → Log groups → `/Northstar/npm`
+- AWS Console → CloudWatch → Logs → Log groups → `/northstar-cloud-solutions/npm`
 
 This is useful for:
 

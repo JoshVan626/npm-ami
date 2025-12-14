@@ -97,10 +97,10 @@ Northstar Cloud Solutions LLC is responsible for:
 ## Observability
 
 - **CloudWatch Logs**
-  - Log group: `/Northstar/npm`
+  - Log group: `/northstar-cloud-solutions/npm`
   - System logs (`syslog`, `auth.log`)
 - **CloudWatch Metrics**
-  - Namespace: `Northstar/System`
+  - Namespace: `NorthstarCloudSolutions/System`
   - Memory and disk usage
 
 ---
@@ -150,5 +150,5 @@ See the [`LICENSE`](LICENSE) file for full terms.
 - **Vendor:** Northstar Cloud Solutions LLC
 - **Base OS:** Ubuntu Server 22.04 LTS
 - **NPM Version:** Pinned Docker image (see documentation)
-- **CloudWatch Log Group:** `/Northstar/npm`
-- **CloudWatch Metrics Namespace:** `Northstar/System`
+- **CloudWatch Log Group:** `/northstar-cloud-solutions/npm`
+- **CloudWatch Metrics Namespace:** `NorthstarCloudSolutions/System`

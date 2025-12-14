@@ -219,11 +219,11 @@ After creating the AMI and launching a new instance from it:
 
 - [ ] CloudWatch Agent is running (`systemctl status amazon-cloudwatch-agent`)
 - [ ] Logs appear in CloudWatch Logs:
-  - [ ] Log group `/Northstar/npm` exists
+  - [ ] Log group `/northstar-cloud-solutions/npm` exists
   - [ ] Log stream `{instance_id}-syslog` has entries
   - [ ] Log stream `{instance_id}-auth` has entries
 - [ ] Metrics appear in CloudWatch Metrics:
-  - [ ] Namespace `Northstar/System` exists
+  - [ ] Namespace `NorthstarCloudSolutions/System` exists
   - [ ] Metric `mem_used_percent` has data points
   - [ ] Metric `disk.used_percent` has data points
   - [ ] Dimensions include `InstanceId` and `InstanceType`
