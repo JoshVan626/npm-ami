@@ -89,6 +89,10 @@ For AMI integrity:
 - SSH host keys are removed during AMI creation
 - Machine ID is reset
 
+### SSH Host Key Regeneration
+
+SSH host keys are regenerated on first boot via `cloud-init` so each instance launched from the AMI has unique host keys. If you reuse an Elastic IP address or DNS name, your SSH client may show a one-time “host key changed” warning on the first connection to the new instance. This is expected behavior and does not indicate compromise. Update your local `known_hosts` entry for the hostname/IP and reconnect.
+
 On first boot of an instance:
 
 - New SSH host keys are generated

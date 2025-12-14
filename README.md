@@ -72,7 +72,7 @@ Northstar Cloud Solutions LLC is responsible for:
 
 ---
 
-## Maintenance, Updates, and Upgrades
+## Versioning and Upgrades
 
 ### Operating System Updates
 - Ubuntu security updates are applied automatically via `unattended-upgrades`.
@@ -83,8 +83,8 @@ Northstar Cloud Solutions LLC is responsible for:
 - Application containers are **not** automatically upgraded.
 
 ### Upgrades
-- The recommended upgrade path is to launch a newer AMI version and restore from backup.
-- In-place upgrades are optional and documented, but not automatic.
+- The recommended upgrade path is to **launch a newer AMI version** and restore configuration using the provided `npm-backup` / `npm-restore` tools.
+- In-place upgrades may be documented, but they are optional and **not** performed automatically.
 
 ### Release Policy
 - Each AMI release is built from a specific repository state and tested prior to publication.
