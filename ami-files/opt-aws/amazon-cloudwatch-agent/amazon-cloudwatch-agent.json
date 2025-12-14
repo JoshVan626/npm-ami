@@ -22,6 +22,14 @@
             "timestamp_format": "%b %d %H:%M:%S",
             "encoding": "utf-8",
             "auto_removal": true
+          },
+          {
+            "file_path": "/var/lib/docker/containers/*/*-json.log",
+            "log_group_name": "/Northstar/npm",
+            "log_stream_name": "{instance_id}-docker",
+            "timestamp_format": "%Y-%m-%dT%H:%M:%S",
+            "encoding": "utf-8",
+            "auto_removal": false
           }
         ]
       }
@@ -33,6 +41,17 @@
       "InstanceType": "${aws:InstanceType}"
     },
     "metrics_collected": {
+      "cpu": {
+        "measurement": [
+          "cpu_usage_idle",
+          "cpu_usage_iowait"
+        ],
+        "metrics_collection_interval": 60,
+        "totalcpu": true,
+        "resources": [
+          "*"
+        ]
+      },
       "disk": {
         "measurement": [
           "used_percent"
@@ -47,6 +66,16 @@
           "mem_used_percent"
         ],
         "metrics_collection_interval": 60
+      },
+      "net": {
+        "measurement": [
+          "bytes_sent",
+          "bytes_recv"
+        ],
+        "metrics_collection_interval": 60,
+        "resources": [
+          "eth0"
+        ]
       }
     },
     "namespace": "Northstar/System"

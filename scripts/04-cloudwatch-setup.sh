@@ -83,7 +83,7 @@ if [[ -z "$INSTALL_METHOD" ]]; then
     exit 1
 fi
 
-# Step 3: Copy the config file
+# Step 3: Copy the config file and logrotate config
 echo ""
 echo "[3/5] Copying CloudWatch Agent configuration..."
 
@@ -102,21 +102,34 @@ chown root:root "$CONFIG_DEST"
 chmod 0644 "$CONFIG_DEST"
 echo "✓ Configuration file copied to $CONFIG_DEST"
 
-# Step 4: Enable and start the agent
-echo ""
-echo "[4/5] Enabling and starting CloudWatch Agent service..."
+# Install Docker container log rotation config
+LOGROTATE_SOURCE="$AMI_FILES/etc-logrotate.d/docker-containers"
+LOGROTATE_DEST="/etc/logrotate.d/docker-containers"
 
-# Enable the service
-if systemctl enable amazon-cloudwatch-agent --quiet; then
-    echo "  ✓ Service enabled"
+if [[ -f "$LOGROTATE_SOURCE" ]]; then
+    cp "$LOGROTATE_SOURCE" "$LOGROTATE_DEST"
+    chown root:root "$LOGROTATE_DEST"
+    chmod 0644 "$LOGROTATE_DEST"
+    echo "✓ Docker logrotate config installed to $LOGROTATE_DEST"
+else
+    echo "⚠ Warning: Docker logrotate config not found at $LOGROTATE_SOURCE"
+fi
+
+# Step 4: Enable and configure the agent for runtime start
+echo ""
+echo "[4/5] Enabling CloudWatch Agent service..."
+
+# Enable the service (will start on boot when IAM permissions are available)
+if systemctl enable amazon-cloudwatch-agent --quiet 2>/dev/null; then
+    echo "  ✓ Service enabled (will start on boot)"
 else
     echo "  ⚠ Warning: Failed to enable service (may already be enabled)"
 fi
 
-# Start the service
-if systemctl start amazon-cloudwatch-agent; then
-    echo "  ✓ Service started"
-    
+# Attempt to start the service, but do not fail the build if CloudWatch access is unavailable
+# This is expected during AMI build when no IAM role may be attached
+echo "  Attempting to start service (may fail without IAM role)..."
+if systemctl start amazon-cloudwatch-agent 2>/dev/null; then
     # Give it a moment to initialize
     sleep 2
     
@@ -125,14 +138,13 @@ if systemctl start amazon-cloudwatch-agent; then
         echo "  ✓ Service is active"
         SERVICE_STATUS="active"
     else
-        echo "  ⚠ Warning: Service started but may not be fully active yet"
-        SERVICE_STATUS="starting"
+        echo "  ⚠ Service started but may not be fully active (expected without CloudWatch access)"
+        SERVICE_STATUS="pending"
     fi
 else
-    EXIT_CODE=$?
-    echo "✗ Error: Failed to start CloudWatch Agent service (exit code: $EXIT_CODE)"
-    echo "         Check logs with: journalctl -u amazon-cloudwatch-agent"
-    exit 1
+    echo "  ⚠ Service did not start (expected during AMI build without IAM role)"
+    echo "    Service will start automatically on boot when IAM role is attached"
+    SERVICE_STATUS="pending"
 fi
 
 # Step 5: Basic verification
@@ -173,10 +185,19 @@ echo ""
 echo "CloudWatch Agent will collect logs from:"
 echo "  - /var/log/syslog"
 echo "  - /var/log/auth.log"
-echo "  - /var/log/npm/*.log"
+echo "  - /var/lib/docker/containers/*/*-json.log"
 echo ""
-echo "Log group: /[BrandName]/npm"
-echo "Log streams: {instance_id}-syslog, {instance_id}-auth, {instance_id}-npm"
+echo "Log group: /Northstar/npm"
+echo "Log streams: {instance_id}-syslog, {instance_id}-auth, {instance_id}-docker"
+echo ""
+echo "Metrics collected (namespace: Northstar/System):"
+echo "  - CPU: idle, iowait"
+echo "  - Memory: used_percent"
+echo "  - Disk: used_percent (/)"
+echo "  - Network: bytes_sent, bytes_recv (eth0)"
+echo ""
+echo "Docker log rotation: /etc/logrotate.d/docker-containers"
+echo "  - Daily rotation, 7 days retention, compressed"
 echo ""
 echo "Note: Ensure the instance has an IAM role with CloudWatch Logs permissions"
 echo "      for logs to be successfully sent to CloudWatch."

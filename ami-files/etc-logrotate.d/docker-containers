@@ -1,0 +1,14 @@
+# Logrotate configuration for Docker container JSON logs
+# This prevents disk exhaustion from container logs while maintaining
+# compatibility with Docker and CloudWatch Agent log collection.
+
+/var/lib/docker/containers/*/*-json.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    maxsize 100M
+}
