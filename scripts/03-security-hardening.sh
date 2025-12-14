@@ -185,9 +185,9 @@ set_ssh_directive() {
 #   and does not include 22, we add an additional "Port 22" line rather than
 #   overwriting existing ports.
 # - Ensure Public Key auth stays enabled (preferred for secure access).
-if grep -qE '^[[:space:]]*#?[[:space:]]*Port[[:space:]]+22([[:space:]]+|$)' "$SSH_CONFIG"; then
+if grep -qE '^[[:space:]]*Port[[:space:]]+22([[:space:]]+|$)' "$SSH_CONFIG"; then
     echo "    Port 22 already present"
-elif grep -qE '^[[:space:]]*#?[[:space:]]*Port[[:space:]]+' "$SSH_CONFIG"; then
+elif grep -qE '^[[:space:]]*Port[[:space:]]+' "$SSH_CONFIG"; then
     echo "    Adding: Port 22 (in addition to existing Port directives)"
     echo "Port 22" >> "$SSH_CONFIG"
 else
