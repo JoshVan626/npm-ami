@@ -80,12 +80,55 @@ A systemd timer runs this **once per day at 02:00** by default:
 - Service: `npm-backup.service`
 - Timer: `npm-backup.timer`
 
-Check status:
+Check timer status:
 
 ```bash
 sudo systemctl status npm-backup.timer
 sudo systemctl status npm-backup.service
 ```
+
+---
+
+## Checking backup status
+
+The backup script writes status to sentinel files and can be checked via `npm-helper`:
+
+```bash
+sudo npm-helper status
+```
+
+This displays:
+
+- **Last backup file**: Most recent archive in the backup directory
+- **Last run**: Timestamp of the last backup attempt
+- **Last success**: Timestamp and filename of the last successful backup
+- **Last failure**: If present, timestamp and reason for the last failure
+
+### Sentinel files
+
+Backup status is stored in `/var/lib/northstar/npm/`:
+
+| File | Description |
+|------|-------------|
+| `backup-last-run` | Timestamp of last backup start |
+| `backup-last-success` | Timestamp + filename on success |
+| `backup-last-failure` | Timestamp + reason on failure (cleared on success) |
+
+You can also inspect these files directly:
+
+```bash
+cat /var/lib/northstar/npm/backup-last-success
+cat /var/lib/northstar/npm/backup-last-failure
+```
+
+### Structured log output
+
+Each backup run emits a single structured log line to stdout/journald:
+
+- Success: `NORTHSTAR_BACKUP status=success path=/var/backups/npm-*.tar.gz duration_s=N`
+- Failure: `NORTHSTAR_BACKUP status=failure reason=<short_reason> duration_s=N`
+
+If CloudWatch Agent is configured, these lines flow to CloudWatch Logs via syslog.
 
 ---
 
@@ -183,4 +226,62 @@ If the health check fails:
   sudo npm-backup
   ```
 
-- Test `npm-restore` in a non-production environment, so you’re familiar with the flow before you need it in an emergency.
+- Test `npm-restore` in a non-production environment, so you're familiar with the flow before you need it in an emergency.
+
+---
+
+## Troubleshooting backup failures
+
+If backups are failing, check the last failure reason:
+
+```bash
+cat /var/lib/northstar/npm/backup-last-failure
+```
+
+Or use `npm-helper status` to see the full backup status.
+
+### Common failure reasons
+
+| Reason | Cause | Fix |
+|--------|-------|-----|
+| `concurrent_run_in_progress` | Another backup is still running | Wait for it to finish, or check for stuck processes |
+| `invalid_retention_value` | `local_retention` in config is less than 1 | Set `local_retention = 7` (or higher) in `/etc/npm-backup.conf` |
+| `cannot_create_backup_dir` | Backup directory path is invalid or permissions issue | Verify `local_backup_dir` path exists and is writable |
+| `backup_dir_not_writable` | No write permission to backup directory | Check permissions: `ls -la /var/backups` |
+| `tar_archive_failed` | Failed to create the tar archive | Check disk space: `df -h /var/backups` |
+| `backup_file_not_created` | Archive creation succeeded but file not found | Check disk space and filesystem errors |
+
+### S3 upload failures
+
+S3 upload failures do **not** fail the backup—the local backup is still created. Common S3 issues:
+
+- **No IAM role attached**: The instance needs an IAM role with `s3:PutObject` permission
+- **Bucket doesn't exist**: Verify the bucket name in `/etc/npm-backup.conf`
+- **Wrong region**: The bucket must be accessible from the instance's region
+- **AWS CLI not installed**: Check with `which aws`
+
+To test S3 permissions manually:
+
+```bash
+# Create a test file
+echo "test" > /tmp/s3-test.txt
+
+# Try to upload (replace with your bucket)
+aws s3 cp /tmp/s3-test.txt s3://YOUR-BUCKET/test.txt
+
+# Clean up
+rm /tmp/s3-test.txt
+aws s3 rm s3://YOUR-BUCKET/test.txt
+```
+
+### Viewing backup logs
+
+Backup output goes to journald:
+
+```bash
+# Last backup run
+sudo journalctl -u npm-backup.service -n 50
+
+# Search for structured log lines
+sudo journalctl -u npm-backup.service | grep NORTHSTAR_BACKUP
+```

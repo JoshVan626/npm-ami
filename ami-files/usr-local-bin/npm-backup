@@ -5,6 +5,57 @@
 
 set -euo pipefail
 
+# Capture start time for duration tracking
+START_TIME=$(date +%s)
+
+# State directory for backup status (sentinel files)
+STATE_DIR="/var/lib/northstar/npm"
+SENTINEL_LAST_RUN="${STATE_DIR}/backup-last-run"
+SENTINEL_LAST_SUCCESS="${STATE_DIR}/backup-last-success"
+SENTINEL_LAST_FAILURE="${STATE_DIR}/backup-last-failure"
+
+# Ensure state directory exists with safe permissions
+mkdir -p "$STATE_DIR"
+chmod 0750 "$STATE_DIR"
+chown root:root "$STATE_DIR"
+
+# Helper function to write sentinel files
+write_sentinel() {
+    local file="$1"
+    local content="$2"
+    echo "$content" > "$file"
+    chmod 0640 "$file"
+}
+
+# Helper function to emit structured log and exit
+emit_log_and_exit() {
+    local status="$1"
+    local detail="$2"
+    local exit_code="$3"
+    local end_time=$(date +%s)
+    local duration=$((end_time - START_TIME))
+    
+    if [[ "$status" == "success" ]]; then
+        echo "NORTHSTAR_BACKUP status=success path=${detail} duration_s=${duration}"
+    else
+        echo "NORTHSTAR_BACKUP status=failure reason=${detail} duration_s=${duration}"
+    fi
+    
+    exit "$exit_code"
+}
+
+# Helper function to record failure and exit
+fail_backup() {
+    local reason="$1"
+    local timestamp=$(date -Iseconds)
+    write_sentinel "$SENTINEL_LAST_FAILURE" "${timestamp} ${reason}"
+    echo "Error: $reason"
+    emit_log_and_exit "failure" "$reason" 1
+}
+
+# Record backup run start
+write_sentinel "$SENTINEL_LAST_RUN" "$(date -Iseconds)"
+
 # Prevent concurrent runs (timer + manual overlap)
 LOCK_DIR="/var/lock"
 LOCK_FILE="${LOCK_DIR}/npm-backup.lock"
@@ -15,8 +66,7 @@ LOCK_FILE="${LOCK_DIR}/npm-backup.lock"
 # Acquire exclusive lock (non-blocking)
 exec 200>"${LOCK_FILE}"
 if ! flock -n 200; then
-    echo "Error: another npm-backup run is in progress (lock: ${LOCK_FILE})"
-    exit 1
+    fail_backup "concurrent_run_in_progress"
 fi
 
 # Configuration file path
@@ -76,13 +126,18 @@ fi
 
 # Validate local_retention to prevent unbounded disk growth
 if [[ "$LOCAL_RETENTION" -lt 1 ]]; then
-    echo "Error: local_retention must be 1 or greater (current: $LOCAL_RETENTION)"
-    echo "Fix: set [backup] local_retention in /etc/npm-backup.conf (recommended 7+)."
-    exit 1
+    fail_backup "invalid_retention_value"
 fi
 
 # Ensure local_backup_dir exists
-mkdir -p "$LOCAL_BACKUP_DIR"
+if ! mkdir -p "$LOCAL_BACKUP_DIR" 2>/dev/null; then
+    fail_backup "cannot_create_backup_dir"
+fi
+
+# Check if backup directory is writable
+if [[ ! -w "$LOCAL_BACKUP_DIR" ]]; then
+    fail_backup "backup_dir_not_writable"
+fi
 
 # Generate timestamp for backup filename
 TIMESTAMP=$(date +%Y%m%d%H%M%S)
@@ -109,45 +164,47 @@ fi
 # Create backup archive
 # Use tar from root (/) so absolute paths are preserved for restore
 cd /
-tar -czf "$BACKUP_PATH" \
+if ! tar -czf "$BACKUP_PATH" \
     "$DATA_DIR" \
-    "$LETSENCRYPT_DIR" 2>/dev/null || {
-    echo "Error: Failed to create backup archive"
-    exit 1
-}
+    "$LETSENCRYPT_DIR" 2>/dev/null; then
+    fail_backup "tar_archive_failed"
+fi
 
 # Verify backup was created
 if [[ ! -f "$BACKUP_PATH" ]]; then
-    echo "Error: Backup file was not created"
-    exit 1
+    fail_backup "backup_file_not_created"
 fi
 
 BACKUP_SIZE=$(du -h "$BACKUP_PATH" | cut -f1)
 echo "Backup created successfully: $BACKUP_PATH (size: $BACKUP_SIZE)"
 
-# Upload to S3 if configured
+# Upload to S3 if configured (warning on failure, does not fail backup)
+S3_UPLOAD_STATUS="skipped"
 if [[ -n "$S3_BUCKET" ]]; then
     echo "Attempting S3 upload..."
     
     # Check if aws CLI is available
     if ! command -v aws &> /dev/null; then
         echo "Warning: AWS CLI not found, skipping S3 upload"
+        S3_UPLOAD_STATUS="aws_cli_missing"
     else
-        # Build S3 key
+        # Build S3 key (do not log full path for security)
         if [[ -n "$S3_PREFIX" ]]; then
             S3_KEY="s3://${S3_BUCKET}/${S3_PREFIX}/${BACKUP_FILENAME}"
         else
             S3_KEY="s3://${S3_BUCKET}/${BACKUP_FILENAME}"
         fi
         
-        echo "Uploading to: $S3_KEY"
+        echo "Uploading to S3..."
         
         # Attempt upload (don't fail script if this fails)
-        if aws s3 cp "$BACKUP_PATH" "$S3_KEY" 2>&1; then
+        if aws s3 cp "$BACKUP_PATH" "$S3_KEY" --only-show-errors 2>&1; then
             echo "S3 upload completed successfully"
+            S3_UPLOAD_STATUS="success"
         else
             echo "Warning: S3 upload failed, but local backup was created successfully"
             echo "Local backup is available at: $BACKUP_PATH"
+            S3_UPLOAD_STATUS="failed"
         fi
     fi
 else
@@ -178,6 +235,14 @@ else
     echo "No cleanup needed ($BACKUP_COUNT backups, retention limit: $LOCAL_RETENTION)"
 fi
 
-echo "Backup completed successfully"
-exit 0
+# Record success
+TIMESTAMP_ISO=$(date -Iseconds)
+write_sentinel "$SENTINEL_LAST_SUCCESS" "${TIMESTAMP_ISO} ${BACKUP_FILENAME}"
 
+# Clear any previous failure (overwrite with empty or remove)
+if [[ -f "$SENTINEL_LAST_FAILURE" ]]; then
+    rm -f "$SENTINEL_LAST_FAILURE"
+fi
+
+echo "Backup completed successfully"
+emit_log_and_exit "success" "$BACKUP_PATH" 0

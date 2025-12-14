@@ -37,6 +37,12 @@ CREDENTIALS_PATH = "/root/npm-admin-credentials.txt"
 MOTD_PATH = "/etc/update-motd.d/50-npm-info"
 BACKUP_DIR = "/var/backups"
 
+# Backup status sentinel files
+BACKUP_STATE_DIR = "/var/lib/northstar/npm"
+SENTINEL_LAST_RUN = f"{BACKUP_STATE_DIR}/backup-last-run"
+SENTINEL_LAST_SUCCESS = f"{BACKUP_STATE_DIR}/backup-last-success"
+SENTINEL_LAST_FAILURE = f"{BACKUP_STATE_DIR}/backup-last-failure"
+
 
 def cmd_show_admin():
     """
@@ -166,6 +172,25 @@ def cmd_rotate_admin():
         sys.exit(1)
 
 
+def read_sentinel_file(filepath: str) -> str:
+    """
+    Read the contents of a sentinel file.
+    
+    Args:
+        filepath: Path to the sentinel file
+    
+    Returns:
+        Contents of the file, or None if file doesn't exist or is unreadable
+    """
+    try:
+        sentinel = Path(filepath)
+        if sentinel.exists() and sentinel.is_file():
+            return sentinel.read_text().strip()
+    except Exception:
+        pass
+    return None
+
+
 def cmd_status():
     """
     Display system and service status.
@@ -174,7 +199,7 @@ def cmd_status():
     - Docker service status
     - npm service status
     - NPM container status
-    - Last backup file (if any)
+    - Backup status (last run, last success, last failure)
     
     Exits with code 0 unless an unexpected error occurs.
     """
@@ -245,8 +270,8 @@ def cmd_status():
     
     status_info["container"] = container_status
     
-    # Find last backup
-    last_backup = "none found"
+    # Find last backup file
+    last_backup_file = "none found"
     try:
         backup_dir = Path(BACKUP_DIR)
         if backup_dir.exists() and backup_dir.is_dir():
@@ -254,18 +279,41 @@ def cmd_status():
             if backup_files:
                 # Sort by modification time, most recent first
                 backup_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-                last_backup = backup_files[0].name
+                last_backup_file = backup_files[0].name
     except Exception as e:
-        last_backup = f"error checking ({e})"
+        last_backup_file = f"error checking ({e})"
+    
+    # Read backup status from sentinel files
+    backup_last_run = read_sentinel_file(SENTINEL_LAST_RUN)
+    backup_last_success = read_sentinel_file(SENTINEL_LAST_SUCCESS)
+    backup_last_failure = read_sentinel_file(SENTINEL_LAST_FAILURE)
     
     # Print status summary
     print("NPM System Status")
     print("=" * 50)
-    print(f"Docker service:  {status_info['docker']}")
-    print(f"npm service:     {status_info['npm']}")
-    print(f"NPM container:   {status_info['container']}")
-    print(f"Last backup:      {last_backup}")
+    print(f"Docker service:   {status_info['docker']}")
+    print(f"npm service:      {status_info['npm']}")
+    print(f"NPM container:    {status_info['container']}")
     print("=" * 50)
+    print("")
+    print("Backup Status")
+    print("-" * 50)
+    print(f"Last backup file: {last_backup_file}")
+    
+    if backup_last_run:
+        print(f"Last run:         {backup_last_run}")
+    else:
+        print("Last run:         never")
+    
+    if backup_last_success:
+        print(f"Last success:     {backup_last_success}")
+    else:
+        print("Last success:     none")
+    
+    if backup_last_failure:
+        print(f"Last failure:     {backup_last_failure}")
+    
+    print("-" * 50)
 
 
 def main():
