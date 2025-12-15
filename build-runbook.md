@@ -253,8 +253,7 @@ Use this checklist to reduce regressions and ensure traceability before any Mark
   - Test A: **no IAM role attached** (CloudWatch optional; app must still work)
   - Test B: **IAM role attached** (CloudWatch logs/metrics should publish)
 - Run smoke tests (see `docs/testing-checklist.md` → Smoke Test Checklist).
-- Record into `RELEASES.md`:
-  - Version, date, git SHA, pinned NPM Docker image tag, and AMI IDs per region (TBD is not acceptable for Marketplace submission).
+- Record build details (version/date/git SHA/pinned image tag/AMI IDs) in your internal release notes and AWS Marketplace metadata.
 
 ## 6. Next Steps
 
