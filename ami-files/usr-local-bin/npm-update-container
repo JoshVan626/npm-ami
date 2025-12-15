@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# Update the pinned Nginx Proxy Manager container image tag safely.
+# - Requires root
+# - Runs a safety backup first (npm-backup)
+# - Updates /opt/npm/docker-compose.yml image tag
+# - Pulls + recreates container
+# - Health checks http://localhost:81 and rolls back automatically on failure
+
+set -euo pipefail
+
+COMPOSE_DIR="/opt/npm"
+COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.yml"
+BACKUP_SCRIPT="/usr/local/bin/npm-backup"
+IMAGE_REPO="jc21/nginx-proxy-manager"
+HEALTHCHECK_URL="http://localhost:81"
+HEALTHCHECK_TIMEOUT_S=60
+
+usage() {
+  echo "Usage: $0 <new_tag>"
+  echo "Example: $0 2.14.0"
+}
+
+require_root() {
+  if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+    echo "Error: must be run as root (try sudo)." >&2
+    exit 1
+  fi
+}
+
+validate_tag() {
+  local tag="$1"
+  if [[ -z "$tag" ]]; then
+    usage >&2
+    exit 1
+  fi
+  # Tag only (not full image). Keep conservative: no whitespace, no slashes, no colon.
+  if [[ "$tag" =~ [[:space:]] ]] || [[ "$tag" == *"/"* ]] || [[ "$tag" == *":"* ]] || [[ "$tag" == *"\""* ]]; then
+    echo "Error: tag must be a simple image tag (example: 2.14.0)." >&2
+    exit 1
+  fi
+  if [[ ! "$tag" =~ ^[0-9A-Za-z._-]+$ ]]; then
+    echo "Error: invalid tag format: $tag" >&2
+    exit 1
+  fi
+}
+
+run_backup() {
+  if [[ ! -x "$BACKUP_SCRIPT" ]]; then
+    echo "Error: backup script not found or not executable: $BACKUP_SCRIPT" >&2
+    exit 1
+  fi
+  echo "Running safety backup: $BACKUP_SCRIPT"
+  "$BACKUP_SCRIPT"
+  echo "Backup OK"
+}
+
+health_check() {
+  local deadline
+  deadline=$((SECONDS + HEALTHCHECK_TIMEOUT_S))
+
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "Error: curl is required for health checks." >&2
+    return 1
+  fi
+
+  while (( SECONDS < deadline )); do
+    if curl -fsS --max-time 2 "$HEALTHCHECK_URL" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+
+  return 1
+}
+
+main() {
+  require_root
+
+  if [[ $# -ne 1 ]]; then
+    usage >&2
+    exit 1
+  fi
+
+  local new_tag new_image ts compose_backup
+  new_tag="$1"
+  validate_tag "$new_tag"
+  new_image="${IMAGE_REPO}:${new_tag}"
+
+  if [[ ! -f "$COMPOSE_FILE" ]]; then
+    echo "Error: compose file not found: $COMPOSE_FILE" >&2
+    exit 1
+  fi
+
+  run_backup
+
+  ts="$(date -u +%Y%m%dT%H%M%SZ)"
+  compose_backup="${COMPOSE_FILE}.bak.${ts}"
+  cp -a "$COMPOSE_FILE" "$compose_backup"
+  echo "Backed up compose file: $compose_backup"
+
+  # Replace only the jc21/nginx-proxy-manager image tag line.
+  if ! grep -Eq '^[[:space:]]*image:[[:space:]]*"?'"$IMAGE_REPO"':[0-9A-Za-z._-]+"' "$COMPOSE_FILE"; then
+    echo "Error: could not find expected image line for ${IMAGE_REPO} in $COMPOSE_FILE" >&2
+    exit 1
+  fi
+
+  sed -i -E 's|^([[:space:]]*image:[[:space:]]*)"?'$IMAGE_REPO':[0-9A-Za-z._-]+'"?.*$|\1"'"$new_image"'"|g' "$COMPOSE_FILE"
+
+  echo "Updated compose to: image: \"$new_image\""
+
+  echo "Applying update (pull + up -d)..."
+  ( cd "$COMPOSE_DIR" && docker compose pull && docker compose up -d )
+
+  echo "Waiting for service health on $HEALTHCHECK_URL (timeout ${HEALTHCHECK_TIMEOUT_S}s)..."
+  if health_check; then
+    echo "Update successful: $new_image"
+    exit 0
+  fi
+
+  echo "Health check failed; rolling back to previous compose file..." >&2
+  cp -a "$compose_backup" "$COMPOSE_FILE"
+  ( cd "$COMPOSE_DIR" && docker compose up -d )
+
+  if health_check; then
+    echo "Rollback successful." >&2
+  else
+    echo "Rollback attempted but service is still unhealthy; investigate logs." >&2
+  fi
+
+  exit 1
+}
+
+main "$@"

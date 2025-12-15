@@ -64,7 +64,7 @@ echo ""
 echo "[3/6] Installing Python helper scripts and diagnostics..."
 
 PYTHON_SCRIPTS=("npm-init.py" "npm-helper" "npm_common.py")
-BASH_SCRIPTS=("npm-backup" "npm-restore" "npm-diagnostics" "npm-support-bundle" "npm-preflight" "npm-postinit")
+BASH_SCRIPTS=("npm-backup" "npm-restore" "npm-diagnostics" "npm-support-bundle" "npm-preflight" "npm-postinit" "npm-update-container")
 
 # Copy Python scripts
 for script in "${PYTHON_SCRIPTS[@]}"; do
