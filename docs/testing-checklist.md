@@ -133,6 +133,61 @@ After creating the AMI and launching a new instance from it:
 - [ ] No boot errors in system logs
 - [ ] Cloud-init completes successfully
 
+---
+
+## Smoke Test Checklist (copy/paste)
+
+Run these on a fresh instance launched from the baked AMI.
+
+### First boot lifecycle
+
+```bash
+sudo npm-helper status
+sudo systemctl status npm-preflight npm-init npm-postinit npm --no-pager
+sudo test -f /var/lib/northstar/npm/preflight-status && cat /var/lib/northstar/npm/preflight-status
+sudo test -f /var/lib/npm-init-complete && echo "init marker present"
+sudo test -f /var/lib/northstar/npm/postinit-status && cat /var/lib/northstar/npm/postinit-status
+```
+
+### UI access
+
+- Confirm the UI is reachable: `http://<instance-ip>:81`
+
+### Backup dry run
+
+```bash
+sudo npm-backup
+sudo ls -1 /var/lib/northstar/npm/backup-last-*
+sudo cat /var/lib/northstar/npm/backup-last-success
+```
+
+### CloudWatch behavior (IAM optional)
+
+Test A (no IAM role attached): app should still work; agent may log permission errors.
+
+```bash
+sudo systemctl status amazon-cloudwatch-agent --no-pager
+sudo journalctl -u amazon-cloudwatch-agent -n 200 --no-pager
+```
+
+Test B (IAM role attached): confirm log group and namespace names match docs.
+
+- Log group: `/northstar-cloud-solutions/npm`
+- Namespace: `NorthstarCloudSolutions/System`
+
+### Security expectations quick checks
+
+```bash
+sudo sshd -T | grep -E '^(passwordauthentication|permitrootlogin|pubkeyauthentication) '
+sudo ufw status verbose
+```
+
+### Diagnostics JSON
+
+```bash
+sudo npm-helper diagnostics --json | python3 -c 'import sys,json; json.load(sys.stdin); print(\"json_ok\")'
+```
+
 ### Service Startup
 
 - [ ] `docker.service` is active

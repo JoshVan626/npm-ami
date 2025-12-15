@@ -49,6 +49,7 @@ It’s designed for:
 - Use **[Backup & Restore](./backup-restore.md)** to protect your config and TLS certs.
 - Review **[Security](./security.md)** to understand the hardening choices.
 - Check **[Troubleshooting](./troubleshooting.md)** when something doesn't work.
+- See **Troubleshooting** for first-boot recovery commands (preflight/init/post-init) and CloudWatch IAM-optional expectations.
 - See **[Monitoring & Metrics](./monitoring-and-metrics.md)** for CloudWatch logs and metrics.
 - See **[Upgrades](./upgrades.md)** for upgrading the AMI and NPM versions.
 - See **[Examples: Multi-App Setup](./examples-multi-app.md)** for a common use case.

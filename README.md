@@ -103,6 +103,10 @@ Northstar Cloud Solutions LLC is responsible for:
   - Namespace: `NorthstarCloudSolutions/System`
   - Memory and disk usage
 
+Cost & permissions notes:
+- CloudWatch logs/metrics are optional and require an instance role/policy. CloudWatch costs vary by log volume and retention; you control retention in CloudWatch.
+- Optional S3 backups incur S3 costs and require an instance role/policy (see `docs/backup-restore.md`).
+
 ---
 
 ## Support
@@ -129,7 +133,30 @@ When contacting support, please include:
 - Output of `npm-helper status`
 - Relevant CloudWatch log excerpts
 
+For common recovery commands and first-boot troubleshooting, see [`docs/troubleshooting.md`](docs/troubleshooting.md).
+
 ---
+
+## Marketplace listing draft (internal)
+
+Suggested title:
+- **Nginx Proxy Manager – Hardened Edition AMI (Ubuntu 22.04)**
+
+Feature bullets (draft):
+- Hardened Ubuntu 22.04 baseline with conservative defaults
+- Systemd-managed Nginx Proxy Manager stack (Docker + docker compose plugin)
+- One-time first-boot initialization (credentials generated per instance)
+- Optional backups (local + optional S3)
+- Optional CloudWatch Agent configuration (logs + system metrics)
+- Included helper tools for status and diagnostics
+
+Shared responsibility (draft):
+- Customer controls VPC/security groups, DNS, and application configuration inside NPM
+- Optional IAM permissions (CloudWatch/S3) are customer-owned and optional
+- Vendor provides the AMI lifecycle automation, hardening, and documented tooling
+
+Keywords (draft):
+- nginx proxy manager, reverse proxy, tls, letsencrypt, ubuntu 22.04, docker, systemd, aws marketplace, hardened, fail2ban, ufw, cloudwatch, backup
 
 ## Licensing
 

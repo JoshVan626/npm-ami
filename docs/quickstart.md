@@ -64,6 +64,17 @@ Once the instance is running:
 
 ---
 
+## CloudWatch (Optional)
+
+CloudWatch logs and metrics are optional and only ship if you attach an instance role/policy. Lack of IAM permissions should not break the application.
+
+Check agent status:
+
+```bash
+sudo systemctl status amazon-cloudwatch-agent --no-pager
+sudo journalctl -u amazon-cloudwatch-agent -n 200 --no-pager
+```
+
 ## 4. Create your first proxy host
 
 Inside NPM:

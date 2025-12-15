@@ -235,6 +235,27 @@ After creating the AMI, you **must** test it before publishing:
 
 ---
 
+## Minimal Release Checklist (pre-release and release)
+
+Use this checklist to reduce regressions and ensure traceability before any Marketplace submission.
+
+- (Optional for RC, required for release) Tag the git commit (example: `v1.0.0`).
+- Run build scripts on a fresh Ubuntu 22.04 builder instance:
+  - `sudo ./scripts/00-base-packages.sh`
+  - `sudo ./scripts/01-install-docker.sh`
+  - `sudo ./scripts/02-setup-npm-stack.sh`
+  - `sudo ./scripts/03-security-hardening.sh`
+  - `sudo ./scripts/04-cloudwatch-setup.sh`
+  - `sudo ./scripts/06-validate.sh`
+  - `sudo ./scripts/05-cleanup-for-ami.sh`
+- Bake the AMI.
+- Launch test instances from the baked AMI:
+  - Test A: **no IAM role attached** (CloudWatch optional; app must still work)
+  - Test B: **IAM role attached** (CloudWatch logs/metrics should publish)
+- Run smoke tests (see `docs/testing-checklist.md` → Smoke Test Checklist).
+- Record into `RELEASES.md`:
+  - Version, date, git SHA, pinned NPM Docker image tag, and AMI IDs per region (TBD is not acceptable for Marketplace submission).
+
 ## 6. Next Steps
 
 Once the AMI is built and tested:

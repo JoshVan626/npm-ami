@@ -31,6 +31,7 @@ CloudWatch integration is **optional**. This AMI functions normally without any 
 
 Note: this AMI does **not** create alarms, dashboards, or notifications by default.
 CloudWatch retention is controlled by your account settings for the log group and metrics.
+CloudWatch costs vary by log volume and retention settings; you control retention in CloudWatch.
 
 ### Minimal IAM policy (logs + metrics)
 

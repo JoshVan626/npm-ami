@@ -2,6 +2,10 @@
 
 This document is the authoritative record of published AMI versions and their per-region AMI IDs.
 
+IMPORTANT:
+- Populate this file with **real AMI IDs after the first bake**.
+- AWS Marketplace submission must **not** proceed until the release entry has **TBD replaced** with real AMI IDs for the intended regions.
+
 ---
 
 ## Versioning
@@ -27,6 +31,28 @@ Each release record tracks:
 
 ---
 
+## PRE-BUILD TEMPLATE — RC-0
+
+Use this entry during pre-release testing before any Marketplace submission.
+
+- **Version**: `0.1.0-rc.0`
+- **Release date**: `<YYYY-MM-DD>`
+- **Git commit**: `<commit-sha>`
+- **Ubuntu**: `22.04`
+- **Pinned NPM image**: `jc21/nginx-proxy-manager:2.13.5`
+
+### AMI IDs by region (TBD until baked)
+
+| Region | AMI ID |
+|--------|--------|
+| us-east-1 | TBD |
+| us-east-2 | TBD |
+| us-west-1 | TBD |
+| us-west-2 | TBD |
+| eu-west-1 | TBD |
+
+---
+
 ## v1.0.0 (Template)
 
 - **Release date**: `<YYYY-MM-DD>`
@@ -46,11 +72,11 @@ Each release record tracks:
 
 | Region | AMI ID |
 |--------|--------|
-| us-east-1 | ami-xxxxxxxxxxxxxxxxx |
-| us-east-2 | ami-xxxxxxxxxxxxxxxxx |
-| us-west-1 | ami-xxxxxxxxxxxxxxxxx |
-| us-west-2 | ami-xxxxxxxxxxxxxxxxx |
-| eu-west-1 | ami-xxxxxxxxxxxxxxxxx |
+| us-east-1 | TBD |
+| us-east-2 | TBD |
+| us-west-1 | TBD |
+| us-west-2 | TBD |
+| eu-west-1 | TBD |
 
 ---
 
