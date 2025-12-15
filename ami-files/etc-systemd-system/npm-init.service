@@ -11,6 +11,10 @@ RemainAfterExit=yes
 ExecStart=/usr/local/bin/npm-init.py
 StandardOutput=journal
 StandardError=journal
+Restart=on-failure
+RestartSec=5s
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Install]
 WantedBy=multi-user.target

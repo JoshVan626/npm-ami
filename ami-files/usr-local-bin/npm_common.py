@@ -38,35 +38,55 @@ class DatabaseTimeoutError(Exception):
 
 def wait_for_db(db_path: str, timeout_seconds: int = 300, interval_seconds: int = 5) -> None:
     """
-    Poll for database file existence and readability.
-    
+    Poll for the NPM SQLite database to be initialized.
+
+    File existence alone is not sufficient: the DB file can be created before
+    required schema/data (like the `user` table) is ready.
+
+    Readiness condition:
+    - Connect successfully AND
+    - The query `SELECT 1 FROM user LIMIT 1;` executes AND returns at least one row
+
     Args:
         db_path: Path to the SQLite database file
         timeout_seconds: Maximum time to wait in seconds (default 300)
         interval_seconds: Time between checks in seconds (default 5)
-    
+
     Raises:
         DatabaseTimeoutError: If database is not ready within timeout
     """
     db_file = Path(db_path)
     start_time = time.time()
-    
+
     while time.time() - start_time < timeout_seconds:
         if db_file.exists() and db_file.is_file():
+            conn = None
             try:
-                # Try to open the database to ensure it's readable
-                conn = sqlite3.connect(str(db_path))
-                conn.close()
-                return
-            except sqlite3.Error:
-                # Database exists but not yet readable, continue waiting
+                # Use a short timeout to avoid hanging on transient locks.
+                conn = sqlite3.connect(str(db_path), timeout=1)
+                cursor = conn.cursor()
+                # Quote table name for safety (`user` can be problematic in some SQL dialects).
+                cursor.execute('SELECT 1 FROM "user" LIMIT 1;')
+                row = cursor.fetchone()
+                if row is not None:
+                    return
+                # Table exists but not yet populated; retry.
+            except sqlite3.OperationalError:
+                # Missing table / locked database / not ready yet.
                 pass
-        
+            except sqlite3.DatabaseError:
+                # Malformed/partially-written DB or other transient DB error.
+                pass
+            finally:
+                if conn is not None:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+
         time.sleep(interval_seconds)
-    
-    raise DatabaseTimeoutError(
-        f"Database {db_path} not ready after {timeout_seconds} seconds"
-    )
+
+    raise DatabaseTimeoutError(f"Database {db_path} not ready after {timeout_seconds} seconds")
 
 
 def get_sqlite_connection(db_path: str) -> sqlite3.Connection:

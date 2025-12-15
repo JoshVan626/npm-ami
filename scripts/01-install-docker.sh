@@ -124,6 +124,33 @@ fi
 echo "✓ $DOCKER_VERSION"
 echo "✓ $DOCKER_COMPOSE_VERSION"
 
+# Step 7: Configure Docker daemon log rotation (prevent disk exhaustion)
+echo ""
+echo "[6/6] Configuring Docker daemon log rotation..."
+
+mkdir -p /etc/docker
+cat > /etc/docker/daemon.json <<'EOF'
+{
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  }
+}
+EOF
+
+echo "  ✓ Wrote /etc/docker/daemon.json"
+
+echo "  Restarting docker to apply changes..."
+systemctl restart docker
+
+if systemctl is-active --quiet docker; then
+    echo "  ✓ Docker service is active after restart"
+else
+    echo "✗ Error: Docker service is not active after restart"
+    exit 1
+fi
+
 # Summary
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

@@ -51,8 +51,9 @@ if apt-get update && apt-get install -y amazon-cloudwatch-agent 2>/dev/null; the
 else
     echo "  apt package not available, downloading .deb from AWS..."
     
-    # Download the official .deb for Ubuntu 22.04 (amd64)
-    DEB_URL="https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb"
+    # Pinning to version 1.300062.0 to ensure reproducible builds.
+    # See release notes: https://github.com/aws/amazon-cloudwatch-agent/releases
+    DEB_URL="https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/1.300062.0/amazon-cloudwatch-agent.deb"
     DEB_FILE="/tmp/amazon-cloudwatch-agent.deb"
     
     if curl -fsSL "$DEB_URL" -o "$DEB_FILE"; then
