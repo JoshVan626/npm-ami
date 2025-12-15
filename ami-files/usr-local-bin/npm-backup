@@ -76,6 +76,7 @@ CONFIG_FILE="/etc/npm-backup.conf"
 LOCAL_BACKUP_DIR="/var/backups"
 S3_BUCKET=""
 S3_PREFIX="npm"
+S3_SSE=""
 LOCAL_RETENTION=7
 
 # Parse configuration file
@@ -115,6 +116,9 @@ if [[ -f "$CONFIG_FILE" ]]; then
                     s3_prefix)
                         S3_PREFIX="$value"
                         ;;
+                    s3_sse)
+                        S3_SSE="$value"
+                        ;;
                     local_retention)
                         LOCAL_RETENTION="$value"
                         ;;
@@ -147,6 +151,15 @@ BACKUP_PATH="${LOCAL_BACKUP_DIR}/${BACKUP_FILENAME}"
 # Data directories to backup
 DATA_DIR="/opt/npm/data"
 LETSENCRYPT_DIR="/opt/npm/letsencrypt"
+DB_FILE="${DATA_DIR}/database.sqlite"
+TMP_DB=""
+
+cleanup_tmp_db() {
+    if [[ -n "${TMP_DB}" ]]; then
+        rm -f "$TMP_DB" 2>/dev/null || true
+    fi
+}
+trap cleanup_tmp_db EXIT
 
 echo "Starting NPM backup..."
 echo "Backup directory: $LOCAL_BACKUP_DIR"
@@ -161,14 +174,40 @@ if [[ ! -d "$LETSENCRYPT_DIR" ]]; then
     echo "Warning: Let's Encrypt directory $LETSENCRYPT_DIR does not exist"
 fi
 
+# SQLite hot backup (avoid corrupt tar of a live DB)
+if [[ -f "$DB_FILE" ]]; then
+    if ! command -v sqlite3 >/dev/null 2>&1; then
+        fail_backup "sqlite3_missing"
+    fi
+
+    TMP_DB="/tmp/npm-db-hotbackup-${TIMESTAMP}.sqlite"
+    if ! sqlite3 "$DB_FILE" ".backup '$TMP_DB'" 2>/dev/null; then
+        fail_backup "sqlite_hot_backup_failed"
+    fi
+fi
+
 # Create backup archive
 # Use tar from root (/) so absolute paths are preserved for restore
 cd /
-if ! tar -czf "$BACKUP_PATH" \
-    "$DATA_DIR" \
-    "$LETSENCRYPT_DIR" 2>/dev/null; then
+TAR_ARGS=(
+    -czf "$BACKUP_PATH"
+    --exclude="${DB_FILE}"
+    "$DATA_DIR"
+    "$LETSENCRYPT_DIR"
+)
+
+# If we created a hot backup DB in /tmp, include it in the tarball but map it back
+# to the expected restore path: opt/npm/data/database.sqlite
+if [[ -n "${TMP_DB}" ]] && [[ -f "${TMP_DB}" ]]; then
+    tmp_base="$(basename "$TMP_DB")"
+    TAR_ARGS+=( "--transform=s|^tmp/${tmp_base}$|opt/npm/data/database.sqlite|" "$TMP_DB" )
+fi
+
+if ! tar "${TAR_ARGS[@]}" 2>/dev/null; then
     fail_backup "tar_archive_failed"
 fi
+
+cleanup_tmp_db
 
 # Verify backup was created
 if [[ ! -f "$BACKUP_PATH" ]]; then
@@ -198,7 +237,11 @@ if [[ -n "$S3_BUCKET" ]]; then
         echo "Uploading to S3..."
         
         # Attempt upload (don't fail script if this fails)
-        if aws s3 cp "$BACKUP_PATH" "$S3_KEY" --only-show-errors 2>&1; then
+        AWS_S3_ARGS=(--only-show-errors)
+        if [[ -n "$S3_SSE" ]]; then
+            AWS_S3_ARGS+=(--sse "$S3_SSE")
+        fi
+        if aws s3 cp "$BACKUP_PATH" "$S3_KEY" "${AWS_S3_ARGS[@]}" 2>&1; then
             echo "S3 upload completed successfully"
             S3_UPLOAD_STATUS="success"
         else

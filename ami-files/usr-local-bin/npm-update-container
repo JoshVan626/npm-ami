@@ -44,6 +44,195 @@ validate_tag() {
   fi
 }
 
+python_compose_get_image() {
+  # Prints services.app.image from a docker-compose.yml file.
+  # Stdlib-only indentation-aware parser (no PyYAML).
+  local file="$1"
+  python3 - "$file" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+
+def strip_comment(line: str) -> str:
+    return line.split("#", 1)[0].rstrip("\n")
+
+def indent_len(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+def key_name(line_no_comment: str) -> str:
+    s = line_no_comment.strip()
+    if not s or ":" not in s:
+        return ""
+    return s.split(":", 1)[0].strip()
+
+with open(path, "r", encoding="utf-8") as f:
+    lines = f.readlines()
+
+services_i = None
+services_indent = None
+for i, line in enumerate(lines):
+    lc = strip_comment(line).rstrip()
+    if re.match(r"^\s*services\s*:\s*$", lc):
+        services_i = i
+        services_indent = indent_len(line)
+        break
+
+if services_i is None:
+    sys.exit(2)
+
+app_i = None
+app_indent = None
+for i in range(services_i + 1, len(lines)):
+    line = lines[i]
+    lc = strip_comment(line).rstrip()
+    if not lc.strip():
+        continue
+    ind = indent_len(line)
+    if ind <= services_indent:
+        break
+    if re.match(r"^\s*app\s*:\s*$", lc) and ind > services_indent:
+        app_i = i
+        app_indent = ind
+        break
+
+if app_i is None:
+    sys.exit(3)
+
+image_val = None
+for i in range(app_i + 1, len(lines)):
+    line = lines[i]
+    lc = strip_comment(line).rstrip()
+    if not lc.strip():
+        continue
+    ind = indent_len(line)
+    if ind <= app_indent:
+        break
+    if key_name(lc) == "image":
+        _, rest = lc.split(":", 1)
+        v = rest.strip()
+        # strip optional quotes
+        if len(v) >= 2 and ((v[0] == v[-1]) and v[0] in ("'", '"')):
+            v = v[1:-1]
+        image_val = v
+        break
+
+if not image_val:
+    sys.exit(4)
+
+sys.stdout.write(image_val)
+PY
+}
+
+python_compose_set_image() {
+  # Updates services.app.image in docker-compose.yml.
+  # Stdlib-only indentation-aware updater (no PyYAML).
+  local file="$1"
+  local new_image="$2"
+  python3 - "$file" "$new_image" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+new_image = sys.argv[2]
+
+def strip_comment(line: str) -> str:
+    return line.split("#", 1)[0].rstrip("\n")
+
+def indent_len(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+def key_name(line_no_comment: str) -> str:
+    s = line_no_comment.strip()
+    if not s or ":" not in s:
+        return ""
+    return s.split(":", 1)[0].strip()
+
+with open(path, "r", encoding="utf-8") as f:
+    lines = f.readlines()
+
+services_i = None
+services_indent = None
+for i, line in enumerate(lines):
+    lc = strip_comment(line).rstrip()
+    if re.match(r"^\s*services\s*:\s*$", lc):
+        services_i = i
+        services_indent = indent_len(line)
+        break
+
+if services_i is None:
+    raise SystemExit("Could not find 'services:' in compose file")
+
+app_i = None
+app_indent = None
+for i in range(services_i + 1, len(lines)):
+    line = lines[i]
+    lc = strip_comment(line).rstrip()
+    if not lc.strip():
+        continue
+    ind = indent_len(line)
+    if ind <= services_indent:
+        break
+    if re.match(r"^\s*app\s*:\s*$", lc) and ind > services_indent:
+        app_i = i
+        app_indent = ind
+        break
+
+if app_i is None:
+    raise SystemExit("Could not find 'services: -> app:' in compose file")
+
+image_line_i = None
+image_indent = None
+app_end = len(lines)
+for i in range(app_i + 1, len(lines)):
+    line = lines[i]
+    lc = strip_comment(line).rstrip()
+    if not lc.strip():
+        continue
+    ind = indent_len(line)
+    if ind <= app_indent:
+        app_end = i
+        break
+    if key_name(lc) == "image":
+        image_line_i = i
+        image_indent = " " * ind
+        break
+
+def make_image_line(indent: str) -> str:
+    return f'{indent}image: "{new_image}"\n'
+
+if image_line_i is not None:
+    lines[image_line_i] = make_image_line(image_indent)
+else:
+    # Insert image line near the top of the app block, preserving indentation style.
+    insert_at = app_i + 1
+    # Skip blank/comment-only lines that are still within app block indentation.
+    while insert_at < len(lines):
+        raw = lines[insert_at]
+        lc = strip_comment(raw).rstrip()
+        if not lc.strip():
+            # keep moving, but only while still in app block indentation
+            if indent_len(raw) <= app_indent:
+                break
+            insert_at += 1
+            continue
+        if indent_len(raw) <= app_indent:
+            break
+        break
+
+    # Prefer the indentation of the first existing child line, otherwise default to app_indent + 2 spaces.
+    child_indent = None
+    if insert_at < len(lines) and indent_len(lines[insert_at]) > app_indent:
+        child_indent = " " * indent_len(lines[insert_at])
+    else:
+        child_indent = " " * (app_indent + 2)
+    lines.insert(insert_at, make_image_line(child_indent))
+
+with open(path, "w", encoding="utf-8") as f:
+    f.writelines(lines)
+PY
+}
+
 run_backup() {
   if [[ ! -x "$BACKUP_SCRIPT" ]]; then
     echo "Error: backup script not found or not executable: $BACKUP_SCRIPT" >&2
@@ -98,13 +287,7 @@ main() {
   cp -a "$COMPOSE_FILE" "$compose_backup"
   echo "Backed up compose file: $compose_backup"
 
-  # Replace only the jc21/nginx-proxy-manager image tag line.
-  if ! grep -Eq '^[[:space:]]*image:[[:space:]]*"?'"$IMAGE_REPO"':[0-9A-Za-z._-]+"' "$COMPOSE_FILE"; then
-    echo "Error: could not find expected image line for ${IMAGE_REPO} in $COMPOSE_FILE" >&2
-    exit 1
-  fi
-
-  sed -i -E 's|^([[:space:]]*image:[[:space:]]*)"?'$IMAGE_REPO':[0-9A-Za-z._-]+'"?.*$|\1"'"$new_image"'"|g' "$COMPOSE_FILE"
+  python_compose_set_image "$COMPOSE_FILE" "$new_image"
 
   echo "Updated compose to: image: \"$new_image\""
 
@@ -118,6 +301,21 @@ main() {
   fi
 
   echo "Health check failed; rolling back to previous compose file..." >&2
+  old_image="$(python_compose_get_image "$compose_backup" 2>/dev/null || true)"
+  if [[ -z "${old_image}" ]]; then
+    echo "Rollback error: could not determine previous image from backup compose file." >&2
+    exit 1
+  fi
+
+  echo "Rolling back to: $old_image" >&2
+  if ! docker pull "$old_image" >/dev/null 2>&1; then
+    # If pull fails but the image is already present locally, continue rollback.
+    if ! docker image inspect "$old_image" >/dev/null 2>&1; then
+      echo "Rollback error: failed to pull previous image and it is not present locally." >&2
+      exit 1
+    fi
+  fi
+
   cp -a "$compose_backup" "$COMPOSE_FILE"
   ( cd "$COMPOSE_DIR" && docker compose up -d )
 
