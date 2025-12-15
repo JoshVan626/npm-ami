@@ -30,6 +30,7 @@ CloudWatch integration is **optional**. This AMI functions normally without any 
 - Network: bytes in/out on the primary interface (typically `eth0`)
 
 Note: this AMI does **not** create alarms, dashboards, or notifications by default.
+CloudWatch retention is controlled by your account settings for the log group and metrics.
 
 ### Minimal IAM policy (logs + metrics)
 

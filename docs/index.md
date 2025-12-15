@@ -24,7 +24,7 @@ It’s designed for:
 - **Nginx Proxy Manager in Docker**, pinned to a known-good version
 - **Secure first boot:**
   - A strong random admin password is generated on first boot
-  - Password is written to `/root/npm-admin-credentials.txt` (root-only)
+  - Password is written to a root-only credentials file (see `docs/security.md`)
   - A login banner shows URL + credentials on SSH login
 - **Security baseline:**
   - Password SSH login disabled
@@ -33,7 +33,7 @@ It’s designed for:
   - Fail2ban for SSH
   - Conservative sysctl hardening
 - **Ops tools:**
-  - `npm-helper` (show/rotate admin credentials, check status)
+  - `npm-helper` (rotate admin credentials, check status)
   - `npm-backup` and `npm-restore` (local + optional S3)
   - Daily backup timer via systemd
 - **Observability:**

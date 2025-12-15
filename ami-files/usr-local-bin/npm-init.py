@@ -170,7 +170,7 @@ def main():
     # Write credentials file
     try:
         write_credentials_file(str(CREDENTIALS_FILE), ADMIN_EMAIL, password)
-        logger.info(f"Credentials written to {CREDENTIALS_FILE}")
+        logger.info("Credentials file written successfully.")
     except Exception as e:
         logger.error(f"Failed to write credentials file: {e}")
         sys.exit(1)

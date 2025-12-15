@@ -23,7 +23,7 @@ On first boot, `npm-init.service` runs once to:
 1. Wait for the NPM SQLite database to become ready (up to ~300 seconds)
 2. Generate a secure random admin password
 3. Update the database with the new credentials
-4. Write credentials to `/root/npm-admin-credentials.txt`
+4. Write credentials to a root-only file
 5. Update the SSH login banner (MOTD)
 
 The wait time accounts for slow instance types or cold container pulls.
@@ -176,9 +176,9 @@ subcommands:
 sudo npm-helper show-admin
 ```
 
-Outputs the current admin username/password stored in:
+Outputs the current admin username stored in:
 
-- `/root/npm-admin-credentials.txt`
+- the admin username (password is not displayed again after first login; see `docs/security.md`)
 
 ### Rotate admin password
 
@@ -191,8 +191,8 @@ What it does:
 1. Waits for the NPM SQLite database to be ready.
 2. Generates a new strong random password.
 3. Updates the NPM `auth` table with the new bcrypt hash.
-4. Writes the new credentials to `/root/npm-admin-credentials.txt`.
-5. Updates the MOTD banner so new logins see the updated credentials.
+4. Writes the new credentials to a root-only credentials file.
+5. Updates the MOTD banner (password is not re-printed after first login).
 
 Use this whenever you want to rotate the admin password without touching the
 web UI.
@@ -211,6 +211,11 @@ Shows:
 - Last backup timestamp found under `/var/backups`
 
 This is a quick way to check if the system is healthy.
+
+Additional opt-in commands:
+
+- `sudo npm-helper update-os` – run a one-click `apt-get update` + `apt-get upgrade` (may require reboot)
+- `sudo npm-helper diagnostics --json` – emit non-sensitive diagnostic JSON for support/troubleshooting
 
 ---
 

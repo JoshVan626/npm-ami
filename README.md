@@ -140,6 +140,8 @@ The resulting AMI includes third-party software (including Ubuntu Linux,
 Docker, Nginx, and Nginx Proxy Manager), each licensed under their respective
 licenses.
 
+Nginx Proxy Manager is an upstream project. Any CVEs or vulnerabilities in the Nginx Proxy Manager container image are inherited from upstream. Northstar Cloud Solutions LLC provides the hardened operating system baseline, lifecycle automation, and operational tooling around the pinned application version.
+
 See the [`LICENSE`](LICENSE) file for full terms.
 
 ---

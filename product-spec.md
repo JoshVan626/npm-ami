@@ -203,7 +203,7 @@ When a new EC2 instance is launched from this AMI:
      - Updates the NPM `auth` table:
        - Locates the admin user’s `id` in the `user` table.  
        - Updates `auth.secret` for that `user_id` where `type = 'password'`.  
-     - Writes credentials to a root-only file (e.g., `/root/npm-admin-credentials.txt`).  
+     - Writes credentials to a root-only file.  
      - Writes an MOTD snippet showing the admin URL, user, and password.  
      - Creates a marker file (e.g., `/var/lib/npm-init-complete`) so it does not run again on this instance.
 

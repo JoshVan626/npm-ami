@@ -85,11 +85,11 @@ If something goes wrong with the new instance:
 
 ---
 
-## 3. Updating NPM Docker image (advanced)
+## 3. Updating NPM Docker image (optional in-place patch upgrade)
 
-The AMI pins NPM to a specific, tested Docker image version for stability. However, you may want to manually update to a newer NPM version to get new features or security fixes.
+The AMI pins NPM to a specific, tested Docker image tag for stability. The recommended approach is to upgrade by launching a newer AMI version and restoring from backup. If you choose to update NPM in-place, you are choosing to deviate from the pinned version promise and assume the operational risk.
 
-> **Warning:** Updating the NPM Docker image manually is not officially supported. Test thoroughly in a non-production environment first. Some NPM versions may have breaking changes or require database migrations.
+> **Warning:** In-place NPM image updates are optional and not automatic. Test in a non-production environment first.
 
 ### When to consider manual updates
 
@@ -97,14 +97,14 @@ The AMI pins NPM to a specific, tested Docker image version for stability. Howev
 - A security vulnerability is patched in a newer version
 - You're comfortable troubleshooting Docker and NPM issues
 
-### How to update the NPM Docker image
+### Conservative in-place steps (patch updates)
 
 1. **Backup first:**
    ```bash
    sudo npm-backup
    ```
 
-2. **Edit the Docker Compose file:**
+2. **Edit the Docker Compose file to a newer patch tag:**
    ```bash
    sudo nano /opt/npm/docker-compose.yml
    ```
@@ -115,7 +115,7 @@ The AMI pins NPM to a specific, tested Docker image version for stability. Howev
    image: "jc21/nginx-proxy-manager:2.13.5"
    
    # To:
-   image: "jc21/nginx-proxy-manager:2.14.0"
+   image: "jc21/nginx-proxy-manager:2.13.6"
    ```
 
 3. **Pull the new image:**
@@ -133,13 +133,20 @@ The AMI pins NPM to a specific, tested Docker image version for stability. Howev
    - Check NPM admin UI is accessible
    - Verify all proxy hosts are still configured
    - Test a few proxy hosts
-   - Check CloudWatch logs for errors
    - Monitor for a few hours
 
-6. **If something breaks:**
-   - Restore from backup using `npm-restore`
-   - Revert the `docker-compose.yml` change
-   - Report the issue to support if needed
+### Rollback (revert the pinned tag)
+
+If something breaks after an in-place update:
+
+1. Revert the `image:` tag in `/opt/npm/docker-compose.yml` back to the previously pinned value.
+2. Restart the stack:
+
+   ```bash
+   sudo systemctl restart npm
+   ```
+
+3. If needed, restore from a known-good backup using `npm-restore`.
 
 ### Staying on the pinned version
 

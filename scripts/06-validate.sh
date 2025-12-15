@@ -33,6 +33,20 @@ require_file() {
   fi
 }
 
+require_grep() {
+  local file="$1"
+  local pattern="$2"
+  if [[ ! -f "$file" ]]; then
+    fail "missing file for grep: $file"
+    return 0
+  fi
+  if grep -qE "$pattern" "$file"; then
+    pass "grep ok: $(basename "$file") matches /$pattern/"
+  else
+    fail "grep failed: $(basename "$file") missing /$pattern/"
+  fi
+}
+
 python_pycompile() {
   local files=("$@")
 
@@ -103,6 +117,11 @@ for f in "${PY_CANDIDATES[@]}"; do
 done
 
 python_pycompile "${PY_FILES[@]}"
+
+# 2b) Lightweight v1.0 contract checks (no execution)
+require_grep "$AMI_FILES/usr-local-bin/npm-helper" "subparsers\.add_parser\\([[:space:]]*\"update-os\""
+require_grep "$AMI_FILES/usr-local-bin/npm-helper" "subparsers\.add_parser\\([[:space:]]*\"diagnostics\""
+require_grep "$AMI_FILES/usr-local-bin/npm_common.py" "Security expectations"
 
 # 3) Optional: systemd unit verification (if available)
 if command -v systemd-analyze >/dev/null 2>&1; then

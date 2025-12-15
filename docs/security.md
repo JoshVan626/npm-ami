@@ -8,6 +8,7 @@ This AMI ships with a conservative security baseline applied out of the box.
 
 - `PasswordAuthentication no`
 - `PermitRootLogin no`
+- `PubkeyAuthentication yes`
 - `UsePAM yes`
 - `Banner /etc/issue.net` – displays a legal/security notice
 
@@ -16,6 +17,7 @@ This AMI ships with a conservative security baseline applied out of the box.
 - You **must** use SSH keys to access the instance.
 - Logging in directly as `root` via SSH is disabled.
 - You should SSH as `ubuntu` (or another user you configure) and use `sudo`.
+- Initial admin credentials are stored in `/root/npm-admin-credentials.txt` (root-only, `0600`). Rotate the password after first login and delete the file if your policy requires it.
 
 ---
 

@@ -42,20 +42,12 @@ Once the instance is running:
 
    Admin URL: http://<instance-ip>:81
    Username: admin@example.com
-   Password: <generated-strong-password>
+   Password: <generated-strong-password> (shown on first login only)
    ```
 
-3. You can always re-view the credentials with:
+3. Credentials are shown on the **first SSH login** via the MOTD banner. For security, they are not re-printed on future logins.
 
-   ```bash
-   sudo npm-helper show-admin
-   ```
-
-   or by reading:
-
-   ```bash
-   sudo cat /root/npm-admin-credentials.txt
-   ```
+   If you need to retrieve or rotate credentials later, see **Security** (`docs/security.md`) and use `sudo npm-helper rotate-admin`.
 
 ---
 

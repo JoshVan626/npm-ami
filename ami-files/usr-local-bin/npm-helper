@@ -9,9 +9,12 @@ Provides administrative commands for managing Nginx Proxy Manager:
 """
 
 import argparse
+import json
 import os
 import subprocess
 import sys
+import time
+import shutil
 from pathlib import Path
 
 # Import shared utilities
@@ -48,6 +51,278 @@ PREFLIGHT_STATUS = f"{BACKUP_STATE_DIR}/preflight-status"
 POSTINIT_STATUS = f"{BACKUP_STATE_DIR}/postinit-status"
 INIT_MARKER_FILE = "/var/lib/npm-init-complete"
 
+def require_root(action_name: str) -> None:
+    if os.geteuid() != 0:
+        print(f"Error: '{action_name}' requires root privileges.")
+        print(f"Run: sudo npm-helper {action_name}")
+        sys.exit(1)
+
+
+def run_cmd(cmd, *, cwd=None, timeout=60, check=False):
+    return subprocess.run(
+        cmd,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=check,
+    )
+
+
+def cmd_update_os():
+    """
+    Run a one-click OS package upgrade (manual, opt-in).
+    """
+    require_root("update-os")
+
+    start = time.time()
+    print("WARNING: This will apply Ubuntu package updates and may require a reboot.")
+    print("         Review changes and run during a maintenance window when possible.")
+    print("")
+
+    env = os.environ.copy()
+    env["DEBIAN_FRONTEND"] = "noninteractive"
+
+    try:
+        print("Running: apt-get update")
+        subprocess.run(["apt-get", "update"], env=env, check=True)
+
+        print("")
+        print("Running: apt-get upgrade -y --with-new-pkgs")
+        subprocess.run(["apt-get", "upgrade", "-y", "--with-new-pkgs"], env=env, check=True)
+
+    except subprocess.CalledProcessError as e:
+        duration = int(time.time() - start)
+        print(f"NORTHSTAR_UPDATE_OS status=failure duration_s={duration}")
+        sys.exit(e.returncode if e.returncode != 0 else 1)
+
+    duration = int(time.time() - start)
+
+    if Path("/var/run/reboot-required").exists():
+        print("")
+        print("REBOOT REQUIRED")
+
+    print(f"NORTHSTAR_UPDATE_OS status=success duration_s={duration}")
+    sys.exit(0)
+
+
+def parse_status_line(line: str):
+    """
+    Parse status files written by preflight/postinit scripts.
+    Expected formats:
+      OK <timestamp>
+      FAIL <timestamp> reason=<enum>
+    """
+    if not line:
+        return None
+    parts = line.split()
+    if len(parts) >= 2 and parts[0] in ("OK", "FAIL"):
+        status = "ok" if parts[0] == "OK" else "fail"
+        ts = parts[1]
+        reason = None
+        for p in parts[2:]:
+            if p.startswith("reason="):
+                reason = p.split("=", 1)[1]
+                break
+        out = {"status": status, "timestamp": ts}
+        if reason:
+            out["reason"] = reason
+        return out
+    return {"raw": line}
+
+
+def systemd_unit_status(unit: str, errors: list):
+    info = {"unit": unit}
+    try:
+        r_active = run_cmd(["systemctl", "is-active", unit], timeout=5)
+        info["active"] = r_active.stdout.strip() if r_active.stdout.strip() else "unknown"
+        r_enabled = run_cmd(["systemctl", "is-enabled", unit], timeout=5)
+        info["enabled"] = r_enabled.stdout.strip() if r_enabled.stdout.strip() else "unknown"
+    except FileNotFoundError:
+        errors.append(f"systemctl_not_found:{unit}")
+        info["active"] = "unknown"
+        info["enabled"] = "unknown"
+    except Exception as e:
+        errors.append(f"systemctl_error:{unit}:{type(e).__name__}")
+        info["active"] = "unknown"
+        info["enabled"] = "unknown"
+    return info
+
+
+def cmd_diagnostics(json_mode: bool = False):
+    """
+    Gather non-sensitive diagnostics for support and troubleshooting.
+    """
+    errors = []
+    core_errors = []
+
+    # Lifecycle markers
+    preflight = parse_status_line(read_sentinel_file(PREFLIGHT_STATUS))
+    postinit = parse_status_line(read_sentinel_file(POSTINIT_STATUS))
+    init_marker = Path(INIT_MARKER_FILE)
+    init_info = {"status": "complete" if init_marker.exists() else "incomplete"}
+    if init_marker.exists():
+        try:
+            init_info["timestamp"] = time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(init_marker.stat().st_mtime))
+        except Exception:
+            pass
+
+    # Systemd statuses (core)
+    units = [
+        "npm.service",
+        "npm-preflight.service",
+        "npm-init.service",
+        "npm-postinit.service",
+        "npm-backup.timer",
+        "npm-backup.service",
+    ]
+    unit_statuses = []
+    for u in units:
+        st = systemd_unit_status(u, errors)
+        unit_statuses.append(st)
+        if st.get("active") == "unknown" and st.get("enabled") == "unknown":
+            core_errors.append(f"systemd_status_unavailable:{u}")
+
+    # Disk usage (core)
+    disk = {}
+    try:
+        du_root = shutil.disk_usage("/")
+        disk["root"] = {
+            "path": "/",
+            "total_bytes": du_root.total,
+            "used_bytes": du_root.used,
+            "free_bytes": du_root.free,
+            "used_percent": round((du_root.used / du_root.total) * 100, 2) if du_root.total else None,
+        }
+    except Exception as e:
+        core_errors.append(f"disk_usage_error_root:{type(e).__name__}")
+
+    try:
+        du_backups = shutil.disk_usage(BACKUP_DIR)
+        disk["backups"] = {
+            "path": BACKUP_DIR,
+            "total_bytes": du_backups.total,
+            "used_bytes": du_backups.used,
+            "free_bytes": du_backups.free,
+            "used_percent": round((du_backups.used / du_backups.total) * 100, 2) if du_backups.total else None,
+        }
+    except FileNotFoundError:
+        disk["backups"] = {"path": BACKUP_DIR, "error": "not_found"}
+    except Exception as e:
+        errors.append(f"disk_usage_error_backups:{type(e).__name__}")
+
+    # CloudWatch agent status (best-effort)
+    cw = {"service": "amazon-cloudwatch-agent.service"}
+    cw.update(systemd_unit_status("amazon-cloudwatch-agent.service", errors))
+
+    # IAM availability (best-effort, no AWS SDK; IMDSv2 attempt with short timeouts)
+    iam = {"available": "unknown", "method": "imds"}
+    try:
+        if not shutil.which("curl"):
+            raise FileNotFoundError()
+        # token
+        token = run_cmd(
+            ["curl", "-sS", "-m", "1", "-X", "PUT", "http://169.254.169.254/latest/api/token",
+             "-H", "X-aws-ec2-metadata-token-ttl-seconds: 60"],
+            timeout=2,
+        )
+        if token.returncode == 0 and token.stdout.strip():
+            t = token.stdout.strip()
+            role = run_cmd(
+                ["curl", "-sS", "-m", "1", "-H", f"X-aws-ec2-metadata-token: {t}",
+                 "http://169.254.169.254/latest/meta-data/iam/security-credentials/"],
+                timeout=2,
+            )
+            iam["available"] = bool(role.returncode == 0 and role.stdout.strip())
+        else:
+            iam["available"] = "unknown"
+    except FileNotFoundError:
+        iam["available"] = "unknown"
+    except Exception:
+        iam["available"] = "unknown"
+
+    # NPM container health (best-effort)
+    npm_container = {"status": "unknown", "containers": []}
+    try:
+        r = run_cmd(["docker", "compose", "ps", "--format", "json"], cwd="/opt/npm", timeout=5)
+        if r.returncode == 0 and r.stdout.strip():
+            for line in r.stdout.strip().splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                    npm_container["containers"].append(
+                        {
+                            "name": obj.get("Name"),
+                            "service": obj.get("Service"),
+                            "state": obj.get("State"),
+                            "health": obj.get("Health"),
+                        }
+                    )
+                except Exception:
+                    continue
+            # derive overall status
+            if any(c.get("state") == "running" for c in npm_container["containers"]):
+                npm_container["status"] = "running"
+            elif npm_container["containers"]:
+                npm_container["status"] = "not_running"
+            else:
+                npm_container["status"] = "unknown"
+        else:
+            npm_container["status"] = "not_found"
+    except FileNotFoundError:
+        npm_container["status"] = "docker_not_found"
+    except Exception as e:
+        errors.append(f"docker_compose_ps_error:{type(e).__name__}")
+
+    result = {
+        "product": "Nginx Proxy Manager – Hardened Edition AMI",
+        "vendor": "Northstar Cloud Solutions LLC",
+        "lifecycle": {
+            "preflight": preflight,
+            "init": init_info,
+            "postinit": postinit,
+        },
+        "systemd": {"units": unit_statuses},
+        "disk": disk,
+        "cloudwatch": {"agent": cw, "iam_available": iam["available"], "iam_method": iam["method"]},
+        "npm": npm_container,
+        "errors": errors,
+    }
+
+    exit_code = 0
+    if core_errors:
+        result.setdefault("errors", []).extend(core_errors)
+        exit_code = 1
+
+    if json_mode:
+        sys.stdout.write(json.dumps(result, separators=(",", ":"), sort_keys=True) + "\n")
+        sys.exit(exit_code)
+
+    # Human output (keep concise)
+    print("NPM Diagnostics")
+    print("=" * 50)
+    print(f"Init: {init_info.get('status')}")
+    if preflight:
+        print(f"Preflight: {preflight}")
+    if postinit:
+        print(f"Post-init: {postinit}")
+    print("")
+    for u in unit_statuses:
+        print(f"{u['unit']}: active={u.get('active')} enabled={u.get('enabled')}")
+    if disk.get("root"):
+        print(f"Disk / used_percent={disk['root'].get('used_percent')}%")
+    if disk.get("backups") and isinstance(disk["backups"], dict) and disk["backups"].get("used_percent") is not None:
+        print(f"Disk {BACKUP_DIR} used_percent={disk['backups'].get('used_percent')}%")
+    print(f"CloudWatch agent active={cw.get('active')} enabled={cw.get('enabled')} iam_available={iam.get('available')}")
+    print(f"NPM containers status={npm_container.get('status')}")
+    if errors:
+        print("Errors:")
+        for e in errors:
+            print(f" - {e}")
+    sys.exit(exit_code)
+
 
 def cmd_show_admin():
     """
@@ -58,7 +333,7 @@ def cmd_show_admin():
     cred_file = Path(CREDENTIALS_PATH)
     
     if not cred_file.exists():
-        print(f"Error: Credentials file not found at {CREDENTIALS_PATH}")
+        print("Error: Credentials file not found.")
         print("Did npm-init run yet?")
         sys.exit(1)
     
@@ -77,11 +352,12 @@ def cmd_show_admin():
                 password = line.split(":", 1)[1].strip()
         
         if not username or not password:
-            print(f"Error: Could not parse credentials from {CREDENTIALS_PATH}")
+            print("Error: Could not parse credentials file.")
             sys.exit(1)
         
         print(f"Admin user: {username}")
-        print(f"Admin password: {password}")
+        print("Admin password: (not displayed)")
+        print("For security, the password is only shown on first login (MOTD).")
         
     except Exception as e:
         print(f"Error reading credentials file: {e}")
@@ -141,7 +417,7 @@ def cmd_rotate_admin():
         # Write credentials file
         try:
             write_credentials_file(CREDENTIALS_PATH, ADMIN_EMAIL, new_password)
-            print(f"Credentials written to {CREDENTIALS_PATH}")
+            print("Credentials written to root-only credentials file.")
         except Exception as e:
             print(f"Error writing credentials file: {e}")
             conn.close()
@@ -169,7 +445,7 @@ def cmd_rotate_admin():
         
         print("\nPassword rotation completed successfully!")
         print(f"Admin user: {ADMIN_EMAIL}")
-        print(f"New password: {new_password}")
+        print("New password: (not displayed)")
         
     except Exception as e:
         print(f"Unexpected error during password rotation: {e}")
@@ -370,6 +646,23 @@ def main():
         "status",
         help="Show system and service status"
     )
+
+    # update-os subcommand
+    subparsers.add_parser(
+        "update-os",
+        help="Run a one-click OS update (apt-get update && apt-get upgrade)"
+    )
+
+    # diagnostics subcommand
+    parser_diag = subparsers.add_parser(
+        "diagnostics",
+        help="Collect non-sensitive diagnostics for troubleshooting"
+    )
+    parser_diag.add_argument(
+        "--json",
+        action="store_true",
+        help="Output machine-readable JSON only"
+    )
     
     # Parse arguments
     args = parser.parse_args()
@@ -381,6 +674,10 @@ def main():
         cmd_rotate_admin()
     elif args.command == "status":
         cmd_status()
+    elif args.command == "update-os":
+        cmd_update_os()
+    elif args.command == "diagnostics":
+        cmd_diagnostics(json_mode=getattr(args, "json", False))
     else:
         parser.print_help()
         sys.exit(1)

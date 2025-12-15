@@ -73,6 +73,9 @@ STATE_DIR="/var/lib/northstar/npm"
 PREFLIGHT="${STATE_DIR}/preflight-status"
 POSTINIT="${STATE_DIR}/postinit-status"
 INIT_MARKER="/var/lib/npm-init-complete"
+BACKUP_DIR="/var/backups"
+BACKUP_TIMER_UNIT="npm-backup.timer"
+BACKUPS_WARN_PERCENT=60
 
 read_one_line() {
   f="$1"
@@ -85,6 +88,28 @@ read_one_line() {
 preflight_line=$(read_one_line "$PREFLIGHT")
 postinit_line=$(read_one_line "$POSTINIT")
 
+# Warnings (informational only)
+warn_backup_timer=""
+if command -v systemctl >/dev/null 2>&1; then
+  active="$(systemctl is-active "$BACKUP_TIMER_UNIT" 2>/dev/null || true)"
+  enabled="$(systemctl is-enabled "$BACKUP_TIMER_UNIT" 2>/dev/null || true)"
+  if [ "$active" != "active" ] || [ "$enabled" != "enabled" ]; then
+    warn_backup_timer="Backup timer $BACKUP_TIMER_UNIT is not active/enabled (active=$active enabled=$enabled)"
+  fi
+fi
+
+warn_backup_usage=""
+if [ -d "$BACKUP_DIR" ] && command -v df >/dev/null 2>&1 && command -v du >/dev/null 2>&1; then
+  total_kb="$(df -Pk "$BACKUP_DIR" 2>/dev/null | awk 'NR==2 {print $2}' || true)"
+  dir_kb="$(du -sk "$BACKUP_DIR" 2>/dev/null | awk '{print $1}' || true)"
+  if [ -n "$total_kb" ] && [ -n "$dir_kb" ] && [ "$total_kb" -gt 0 ] 2>/dev/null; then
+    used_pct="$(( (dir_kb * 100) / total_kb ))"
+    if [ "$used_pct" -ge "$BACKUPS_WARN_PERCENT" ] 2>/dev/null; then
+      warn_backup_usage="Backups directory is using ${used_pct}% of the filesystem ($BACKUP_DIR)"
+    fi
+  fi
+fi
+
 # Determine init status
 if [ -f "$INIT_MARKER" ]; then
   init_status="complete"
@@ -92,8 +117,8 @@ else
   init_status="incomplete"
 fi
 
-# Only show block if any status is present or init is incomplete
-if [ "$init_status" = "incomplete" ] || [ -n "$preflight_line" ] || [ -n "$postinit_line" ]; then
+# Only show block if any status/warning is present, or init is incomplete
+if [ "$init_status" = "incomplete" ] || [ -n "$preflight_line" ] || [ -n "$postinit_line" ] || [ -n "$warn_backup_timer" ] || [ -n "$warn_backup_usage" ]; then
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo "  Initialization Status"
@@ -112,6 +137,18 @@ if [ "$init_status" = "incomplete" ] || [ -n "$preflight_line" ] || [ -n "$posti
   else
     echo "  Post-init:  (not yet run)"
   fi
+
+  # Informational warnings (no auto-cleanup)
+  if [ -n "$warn_backup_timer" ] || [ -n "$warn_backup_usage" ]; then
+    echo ""
+    echo "  Warnings:"
+    [ -n "$warn_backup_timer" ] && echo "  - $warn_backup_timer"
+    [ -n "$warn_backup_usage" ] && echo "  - $warn_backup_usage"
+  fi
+
+  echo ""
+  echo "  Security expectations: open ports 22/80/81/443; SSH keys only; root login disabled;"
+  echo "  CloudWatch requires an optional instance role (IAM) for logs/metrics."
 
   # Next steps if preflight/postinit failed
   echo ""

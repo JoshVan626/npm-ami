@@ -152,7 +152,7 @@ After creating the AMI and launching a new instance from it:
 ### First Boot Initialization
 
 - [ ] `/var/lib/npm-init-complete` marker file exists
-- [ ] `/root/npm-admin-credentials.txt` exists with credentials
+- [ ] Credentials file exists (root-only, 0600)
 - [ ] MOTD script `/etc/update-motd.d/50-npm-info` exists
 - [ ] Python helper scripts execute (syntax check): `python3 -m py_compile /usr/local/bin/npm-init.py /usr/local/bin/npm_common.py /usr/local/bin/npm-helper`
 - [ ] MOTD displays on SSH login with:

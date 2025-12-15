@@ -44,19 +44,19 @@ sudo docker compose logs
 
 You can always recover or reset it from the instance:
 
-- Show current credentials:
+- Show current username:
 
   ```bash
   sudo npm-helper show-admin
   ```
 
-- Force a rotation (generates a new password and updates MOTD):
+- Force a rotation (generates a new password):
 
   ```bash
   sudo npm-helper rotate-admin
   ```
 
-Then log in again with the new password.
+For security, passwords are not re-printed on login. See `docs/security.md` for where the credentials are stored and how to handle them safely.
 
 ---
 
