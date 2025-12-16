@@ -204,7 +204,7 @@ echo "Note: Ensure the instance has an IAM role with CloudWatch Logs permissions
 echo "      for logs to be successfully sent to CloudWatch."
 echo ""
 echo "Next steps:"
-echo "  - Run 05-cleanup-for-ami.sh to prepare the instance for AMI creation"
+echo "  - Run 06-cleanup-for-ami.sh to prepare the instance for AMI creation"
 echo ""
 
 exit 0

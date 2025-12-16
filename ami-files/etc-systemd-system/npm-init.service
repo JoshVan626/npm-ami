@@ -4,6 +4,8 @@ Documentation=https://docs.northstar.cloud/npm-ami
 After=npm.service npm-preflight.service
 Requires=npm.service npm-preflight.service
 ConditionPathExists=!/var/lib/npm-init-complete
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=oneshot
@@ -13,8 +15,6 @@ StandardOutput=journal
 StandardError=journal
 Restart=on-failure
 RestartSec=5s
-StartLimitIntervalSec=60
-StartLimitBurst=5
 
 [Install]
 WantedBy=multi-user.target

@@ -71,7 +71,7 @@ npm-premium-ami/
 │  ├─ 02-setup-npm-stack.sh
 │  ├─ 03-security-hardening.sh
 │  ├─ 04-cloudwatch-setup.sh
-│  ├─ 05-cleanup-for-ami.sh
+│  ├─ 06-cleanup-for-ami.sh
 ```
 
 **Note on MOTD script (`/etc/update-motd.d/50-npm-info`):**
@@ -139,12 +139,12 @@ The MOTD script that displays login credentials is **not** shipped as a static f
    # Script 04: CloudWatch setup
    sudo ./scripts/04-cloudwatch-setup.sh
 
-   # Script 06: Validation gate (recommended before cleanup/imaging)
+   # Script 05: Validation gate (recommended before cleanup/imaging)
    # This fails fast on broken systemd units, missing payload files, or Python helper syntax errors.
-   sudo ./scripts/06-validate.sh
+   sudo ./scripts/05-validate.sh
    
-   # Script 05: Cleanup for AMI (WARNING: prepares for snapshot)
-   sudo ./scripts/05-cleanup-for-ami.sh
+   # Script 06: Cleanup for AMI (WARNING: prepares for snapshot)
+   sudo ./scripts/06-cleanup-for-ami.sh
    ```
    
    **Important:** 
@@ -246,8 +246,8 @@ Use this checklist to reduce regressions and ensure traceability before any Mark
   - `sudo ./scripts/02-setup-npm-stack.sh`
   - `sudo ./scripts/03-security-hardening.sh`
   - `sudo ./scripts/04-cloudwatch-setup.sh`
-  - `sudo ./scripts/06-validate.sh`
-  - `sudo ./scripts/05-cleanup-for-ami.sh`
+  - `sudo ./scripts/05-validate.sh`
+  - `sudo ./scripts/06-cleanup-for-ami.sh`
 - Bake the AMI.
 - Launch test instances from the baked AMI:
   - Test A: **no IAM role attached** (CloudWatch optional; app must still work)
