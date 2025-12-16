@@ -648,16 +648,10 @@ def main():
     )
 
     # update-os subcommand
-    subparsers.add_parser(
-        "update-os",
-        help="Run a one-click OS update (apt-get update && apt-get upgrade)"
-    )
+    subparsers.add_parser("update-os", help="Run a one-click OS update (apt-get update && apt-get upgrade)")
 
     # diagnostics subcommand
-    parser_diag = subparsers.add_parser(
-        "diagnostics",
-        help="Collect non-sensitive diagnostics for troubleshooting"
-    )
+    parser_diag = subparsers.add_parser("diagnostics", help="Collect non-sensitive diagnostics for troubleshooting")
     parser_diag.add_argument(
         "--json",
         action="store_true",
