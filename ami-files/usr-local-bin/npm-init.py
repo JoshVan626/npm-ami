@@ -1,38 +1,29 @@
 #!/usr/bin/env python3
-"""
-Nginx Proxy Manager First-Boot Initialization Script
+"""Nginx Proxy Manager First-Boot Initialization Script (Rescue Version)
 
-This script runs once per instance to:
-1. Wait for the NPM SQLite database to be initialized
-2. Generate a strong random admin password
-3. Update the admin user's password in the SQLite database
-4. Store credentials in a root-only file
-5. Update the MOTD with login information
-6. Create a marker file to prevent re-running
-
-This script is called by npm-init.service (systemd) after npm.service starts.
+This version is designed to avoid hanging forever if the database is created but
+not seeded correctly. It uses bounded waits and can force-seed the admin user if
+missing.
 """
 
-import os
-import sys
 import logging
+import os
+import sqlite3
+import sys
+import time
 from pathlib import Path
 
 # Import shared utilities
 from npm_common import (
-    wait_for_db,
-    get_sqlite_connection,
+    ADMIN_EMAIL,
+    build_motd_script,
+    detect_instance_ip,
     generate_password,
-    hash_password,
     get_admin_user_id,
+    get_sqlite_connection,
+    hash_password,
     set_admin_password,
     write_credentials_file,
-    detect_instance_ip,
-    build_motd_script,
-    AdminUserNotFoundError,
-    AuthRecordNotFoundError,
-    DatabaseTimeoutError,
-    ADMIN_EMAIL,  # Configurable via NPM_ADMIN_EMAIL env var
 )
 
 # Configuration constants
@@ -44,151 +35,162 @@ MOTD_SCRIPT = Path("/etc/update-motd.d/50-npm-info")
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.StreamHandler(sys.stderr)
-    ]
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout), logging.StreamHandler(sys.stderr)],
 )
 logger = logging.getLogger(__name__)
 
 
-def check_marker_file():
-    """Check if initialization has already been completed."""
-    if MARKER_FILE.exists():
-        logger.info(f"Marker file {MARKER_FILE} exists. Initialization already completed.")
-        sys.exit(0)
-
-
-def update_admin_password(db_path, password):
-    """
-    Update the admin user's password in the NPM SQLite database.
-    
-    Args:
-        db_path: Path to the SQLite database
-        password: Plain text password to set
-    
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        # Hash the password
-        password_hash = hash_password(password)
-        logger.info("Password hashed successfully.")
-        
-        # Get database connection with Row factory
-        conn = get_sqlite_connection(str(db_path))
-        
+def simple_wait_for_file(path: Path, timeout: int = 60) -> bool:
+    """Wait for the DB file to be created on disk and be non-empty."""
+    start = time.time()
+    logger.info("Waiting for %s to appear...", path)
+    while time.time() - start < timeout:
         try:
-            # Find the admin user by email
-            user_id = get_admin_user_id(conn, ADMIN_EMAIL)
-            logger.info(f"Found admin user with ID: {user_id}")
-            
-            # Update the password in auth table
-            set_admin_password(conn, user_id, password_hash)
-            logger.info("Admin password updated successfully in database.")
+            if path.exists() and path.stat().st_size > 0:
+                logger.info("Database file found.")
+                return True
+        except FileNotFoundError:
+            pass
+        time.sleep(1)
+    return False
+
+
+def ensure_admin_user_exists(conn: sqlite3.Connection, email: str, password_hash: str) -> bool:
+    """Ensure the admin user exists.
+
+    If the user table is not ready yet, return False so the caller can retry.
+    If the user is missing, attempt to insert a minimal admin user + auth record
+    and permissions (rescue seeding).
+    """
+    cursor = conn.cursor()
+
+    # Check if user table exists
+    try:
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user';")
+        if not cursor.fetchone():
+            logger.warning("User table not found yet. Retrying...")
+            return False
+
+        cursor.execute('SELECT id FROM "user" WHERE email = ?', (email,))
+        if cursor.fetchone():
+            logger.info("User %s exists.", email)
             return True
-            
-        except AdminUserNotFoundError as e:
-            logger.error(f"Admin user not found: {e}")
-            return False
-        except AuthRecordNotFoundError as e:
-            logger.error(f"Auth record not found: {e}")
-            return False
-        finally:
-            conn.close()
-        
+    except sqlite3.OperationalError as e:
+        logger.warning("DB locked or not ready: %s", e)
+        return False
+
+    logger.warning("User %s missing! Attempting to force-seed database...", email)
+    try:
+        now_ms = int(time.time() * 1000)
+
+        # Insert admin user
+        cursor.execute(
+            """
+            INSERT INTO "user" (created_on, modified_on, is_deleted, email, name, nickname, avatar, roles)
+            VALUES (?, ?, 0, ?, 'Administrator', 'Admin', '', '["admin"]')
+            """,
+            (now_ms, now_ms, email),
+        )
+        user_id = cursor.lastrowid
+
+        # Insert password auth record
+        cursor.execute(
+            """
+            INSERT INTO auth (created_on, modified_on, user_id, type, secret, meta)
+            VALUES (?, ?, ?, 'password', ?, '{}')
+            """,
+            (now_ms, now_ms, user_id, password_hash),
+        )
+
+        # Insert permissions row
+        cursor.execute(
+            """
+            INSERT INTO user_permission (
+              created_on, modified_on, user_id, visibility,
+              proxy_hosts, redirection_hosts, dead_hosts, streams,
+              access_lists, certificates, proxy_providers
+            )
+            VALUES (?, ?, ?, 'all', 'manage', 'manage', 'manage', 'manage', 'manage', 'manage', 'manage')
+            """,
+            (now_ms, now_ms, user_id),
+        )
+
+        conn.commit()
+        logger.info("Force-seeded user %s with ID %s", email, user_id)
+        return True
     except Exception as e:
-        logger.error(f"Unexpected error while updating password: {e}")
+        logger.error("Seeding failed: %s", e)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         return False
 
 
-def update_motd(password):
-    """
-    Update the MOTD script with login information.
-    
-    Args:
-        password: Admin password
-    """
-    try:
-        # Detect instance IP
-        ip = detect_instance_ip()
-        logger.info(f"Detected instance IP: {ip}")
-        
-        # Build MOTD script content using shared function
-        motd_content = build_motd_script(ip, ADMIN_EMAIL, password)
-        
-        # Write MOTD script
-        with open(MOTD_SCRIPT, 'w') as f:
-            f.write(motd_content)
-        
-        # Make MOTD script executable
-        os.chmod(MOTD_SCRIPT, 0o755)
-        logger.info(f"MOTD script updated at {MOTD_SCRIPT}")
-        
-    except Exception as e:
-        logger.error(f"Failed to update MOTD: {e}")
-        raise
+def main() -> None:
+    logger.info("Starting NPM initialization (Rescue Mode)...")
 
+    if MARKER_FILE.exists():
+        logger.info("Initialization already completed.")
+        sys.exit(0)
 
-def create_marker_file():
-    """Create the marker file to prevent re-running."""
-    try:
-        MARKER_FILE.parent.mkdir(parents=True, exist_ok=True)
-        MARKER_FILE.touch()
-        logger.info(f"Marker file created: {MARKER_FILE}")
-    except Exception as e:
-        logger.error(f"Failed to create marker file: {e}")
-        raise
-
-
-def main():
-    """Main execution function."""
-    logger.info("Starting NPM initialization...")
-    
-    # Check if already initialized
-    check_marker_file()
-    
-    # Wait for database to be ready
-    try:
-        logger.info(f"Waiting for database at {DB_PATH} to be available...")
-        wait_for_db(str(DB_PATH))
-        logger.info(f"Database {DB_PATH} is ready.")
-    except DatabaseTimeoutError as e:
-        logger.error(f"Database initialization failed: {e}")
+    # 1) Wait for the DB file (loose check)
+    if not simple_wait_for_file(DB_PATH, timeout=60):
+        logger.error("Database file never appeared. Aborting.")
         sys.exit(1)
-    
+
     # Generate password
     password = generate_password()
-    logger.info("Generated new admin password.")
-    
-    # Update database
-    if not update_admin_password(DB_PATH, password):
-        logger.error("Failed to update admin password in database. Exiting.")
+    password_hash = hash_password(password)
+
+    # 2) Loop until we can connect and seed/update (bounded)
+    success = False
+    deadline = time.time() + 60
+
+    while time.time() < deadline:
+        conn = None
+        try:
+            conn = get_sqlite_connection(str(DB_PATH))
+
+            if ensure_admin_user_exists(conn, ADMIN_EMAIL, password_hash):
+                user_id = get_admin_user_id(conn, ADMIN_EMAIL)
+                set_admin_password(conn, user_id, password_hash)
+                success = True
+                break
+        except Exception as e:
+            logger.warning("Retry: %s", e)
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+        time.sleep(2)
+
+    if not success:
+        logger.error("Could not seed/update database after retries.")
         sys.exit(1)
-    
-    # Write credentials file
+
+    # 3) Finalize
     try:
         write_credentials_file(str(CREDENTIALS_FILE), ADMIN_EMAIL, password)
-        logger.info("Credentials file written successfully.")
+
+        ip = detect_instance_ip()
+        motd_content = build_motd_script(ip, ADMIN_EMAIL, password)
+        with open(MOTD_SCRIPT, "w", encoding="utf-8") as f:
+            f.write(motd_content)
+        os.chmod(MOTD_SCRIPT, 0o755)
+
+        MARKER_FILE.parent.mkdir(parents=True, exist_ok=True)
+        MARKER_FILE.touch()
+
+        logger.info("NPM initialization completed successfully!")
     except Exception as e:
-        logger.error(f"Failed to write credentials file: {e}")
+        logger.error("Finalization failed: %s", e)
         sys.exit(1)
-    
-    # Update MOTD
-    try:
-        update_motd(password)
-    except Exception as e:
-        logger.error(f"Failed to update MOTD: {e}")
-        sys.exit(1)
-    
-    # Create marker file
-    create_marker_file()
-    
-    logger.info("NPM initialization completed successfully!")
-    sys.exit(0)
 
 
 if __name__ == "__main__":
     main()
-
