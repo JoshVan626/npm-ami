@@ -53,7 +53,7 @@ else
     
     # Pinning to version 1.300062.0 to ensure reproducible builds.
     # See release notes: https://github.com/aws/amazon-cloudwatch-agent/releases
-    DEB_URL="https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/1.300062.0/amazon-cloudwatch-agent.deb"
+    DEB_URL="https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb"
     DEB_FILE="/tmp/amazon-cloudwatch-agent.deb"
     
     if curl -fsSL "$DEB_URL" -o "$DEB_FILE"; then
