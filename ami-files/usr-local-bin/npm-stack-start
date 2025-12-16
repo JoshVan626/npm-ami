@@ -15,28 +15,51 @@ if ! ${COMPOSE_CMD} up -d; then
 fi
 
 echo "Verifying containers are running..."
-sleep 5
+max_attempts=30
+sleep_seconds=2
+last_status_output=""
 
-status_output=$(${COMPOSE_CMD} ps --format '{{.Name}} {{.State}}')
-if [[ -z "$status_output" ]]; then
-    echo "No containers reported by docker compose"
-    exit 1
-fi
+for ((attempt=1; attempt<=max_attempts; attempt++)); do
+    # docker compose ps can briefly return nothing or fail while docker is still coming up
+    status_output=$(${COMPOSE_CMD} ps --format '{{.Name}} {{.State}}' 2>/dev/null || true)
+    last_status_output="$status_output"
 
-failed=0
-while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    name=${line%% *}
-    state=${line#* }
-    echo " - ${name}: ${state}"
-    if [[ "$state" != running* ]]; then
-        failed=1
+    if [[ -n "$status_output" ]]; then
+        failed=0
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            state=${line#* }
+            if [[ "$state" != running* && "$state" != healthy* ]]; then
+                failed=1
+                break
+            fi
+        done <<< "$status_output"
+
+        if (( failed == 0 )); then
+            echo "All NPM containers are running/healthy"
+            exit 0
+        fi
     fi
-done <<< "$status_output"
 
-if (( failed )); then
-    echo "One or more NPM containers are not running; failing for systemd retry"
-    exit 1
+    if (( attempt < max_attempts )); then
+        sleep "$sleep_seconds"
+    fi
+done
+
+echo "Timed out waiting for NPM containers to become running/healthy"
+if [[ -z "$last_status_output" ]]; then
+    echo "No containers reported by docker compose"
+else
+    echo "Last reported container states:"
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        name=${line%% *}
+        state=${line#* }
+        echo " - ${name}: ${state}"
+    done <<< "$last_status_output"
 fi
 
-echo "NPM containers are running"
+echo
+echo "docker compose ps:"
+${COMPOSE_CMD} ps || true
+exit 1
