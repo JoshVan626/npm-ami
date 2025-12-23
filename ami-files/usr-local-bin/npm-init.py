@@ -109,9 +109,9 @@ def ensure_admin_user_exists(conn: sqlite3.Connection, email: str, password_hash
             INSERT INTO user_permission (
               created_on, modified_on, user_id, visibility,
               proxy_hosts, redirection_hosts, dead_hosts, streams,
-              access_lists, certificates, proxy_providers
+              access_lists, certificates
             )
-            VALUES (?, ?, ?, 'all', 'manage', 'manage', 'manage', 'manage', 'manage', 'manage', 'manage')
+            VALUES (?, ?, ?, 'all', 'manage', 'manage', 'manage', 'manage', 'manage', 'manage')
             """,
             (now_ms, now_ms, user_id),
         )
