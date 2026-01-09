@@ -91,6 +91,7 @@ require_file "ami-files/usr-local-bin/npm-restore"
 require_file "ami-files/usr-local-bin/npm-stack-start"
 require_file "ami-files/usr-local-bin/npm-preflight"
 require_file "ami-files/usr-local-bin/npm-postinit"
+require_file "ami-files/usr-local-bin/northstar"
 
 # 2) Python validation (compile)
 PY_CANDIDATES=(

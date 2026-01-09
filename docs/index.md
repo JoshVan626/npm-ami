@@ -1,14 +1,14 @@
-# Nginx Proxy Manager – Hardened Edition (Ubuntu 22.04) by Northstar Cloud Solutions
+# Nginx Proxy Manager (NPM) – Hardened Edition (Ubuntu 22.04) by Northstar Cloud Solutions
 
-The **Nginx Proxy Manager – Hardened Edition (Ubuntu 22.04) by Northstar Cloud Solutions** is a hardened,
-batteries-included EC2 image that gives you:
+The **Nginx Proxy Manager (NPM) – Hardened Edition (Ubuntu 22.04) by Northstar Cloud Solutions** is a
+production-ready reverse proxy for AWS and a hardened, batteries-included EC2 image that gives you:
 
 - A securely configured Nginx Proxy Manager instance (Docker-based, pinned version)
 - Opinionated security defaults (SSH hardening, firewall, fail2ban, sysctl)
-- First-boot automatic admin credential generation (no default passwords)
+- First-boot automatic admin credential generation (no default passwords, no secrets in MOTD)
 - Built-in backup & restore (local + optional S3)
 - CloudWatch logging for system/auth activity
-- Simple CLI helpers for status, password rotation, and backups
+- Simple CLI helpers for status, credential retrieval, and backups
 
 It’s designed for:
 
@@ -24,16 +24,18 @@ It’s designed for:
 - **Nginx Proxy Manager in Docker**, pinned to a known-good version
 - **Secure first boot:**
   - A strong random admin password is generated on first boot
-  - Password is written to a root-only credentials file (see `docs/security.md`)
-  - A login banner shows URL + credentials on SSH login
+  - Credentials are written to a root-only file (see `docs/security.md`)
+  - The login banner shows **no secrets** and points to `npm-helper show-creds`
 - **Security baseline:**
   - Password SSH login disabled
   - Root SSH login disabled
-  - UFW firewall with only `22, 80, 81, 443` open
+  - UFW firewall with only `22, 80, 443` open by default
+  - Port `81` is restricted and must be allowlisted or tunneled
   - Fail2ban for SSH
   - Conservative sysctl hardening
 - **Ops tools:**
-  - `npm-helper` (rotate admin credentials, check status)
+  - `northstar` (recommended wrapper CLI)
+  - `npm-helper` (show/rotate credentials, check status, admin access)
   - `npm-backup` and `npm-restore` (local + optional S3)
   - Daily backup timer via systemd
 - **Observability:**

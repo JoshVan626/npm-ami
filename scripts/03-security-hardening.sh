@@ -237,7 +237,6 @@ ufw default allow outgoing
 echo "  Configuring firewall rules..."
 ufw allow 22/tcp comment 'SSH'
 ufw allow 80/tcp comment 'HTTP'
-ufw allow 81/tcp comment 'NPM Admin UI'
 ufw allow 443/tcp comment 'HTTPS'
 
 # Enable UFW non-interactively
@@ -368,7 +367,7 @@ echo ""
 echo "Firewall (UFW) configured:"
 echo "  - Port 22/tcp (SSH) - allowed"
 echo "  - Port 80/tcp (HTTP) - allowed"
-echo "  - Port 81/tcp (NPM Admin UI) - allowed"
+echo "  - Port 81/tcp (NPM Admin UI) - restricted by default"
 echo "  - Port 443/tcp (HTTPS) - allowed"
 echo "  - UFW enabled"
 echo ""
@@ -391,4 +390,3 @@ echo "  - Run 04-cloudwatch-setup.sh to configure logging"
 echo ""
 
 exit 0
-

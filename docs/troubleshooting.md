@@ -61,10 +61,10 @@ Safe rerun guidance:
 
 ### Admin credential visibility and recovery
 
-- The admin password is shown **only once** on the first SSH login (MOTD).
 - Credentials are stored in a root-only file (see `docs/security.md`).
-- `npm-helper show-admin` does **not** print the password.
-- If you missed the initial password, rotate credentials:
+- `npm-helper show-admin` prints the username and file location.
+- `npm-helper show-creds` prints the stored credentials (root only).
+- If you want a fresh password, rotate credentials:
   - `sudo npm-helper rotate-admin`
 
 ### CloudWatch (IAM optional)
@@ -81,7 +81,7 @@ sudo journalctl -u amazon-cloudwatch-agent -n 200 --no-pager
 ## NPM admin UI is not reachable on port 81
 
 1. Check security group:
-   - Ensure `81/tcp` is allowed from your IP or CIDR.
+   - Ensure `81/tcp` is allowed from your IP or CIDR (never open to the internet).
 
 2. Check UFW on the instance:
 
@@ -89,7 +89,13 @@ sudo journalctl -u amazon-cloudwatch-agent -n 200 --no-pager
    sudo ufw status numbered
    ```
 
-   Make sure port 81 appears as allowed.
+   Make sure port 81 appears as allowed from your IP.
+
+   To allowlist your IP using the helper:
+
+   ```bash
+   sudo npm-helper admin-access enable --cidr <your-ip>/32
+   ```
 
 3. Check services:
 
@@ -124,13 +130,19 @@ You can always recover or reset it from the instance:
   sudo npm-helper show-admin
   ```
 
+- Show stored credentials (root only):
+
+  ```bash
+  sudo npm-helper show-creds
+  ```
+
 - Force a rotation (generates a new password):
 
   ```bash
   sudo npm-helper rotate-admin
   ```
 
-For security, passwords are not re-printed on login. See `docs/security.md` for where the credentials are stored and how to handle them safely.
+For security, passwords are not printed on login. See `docs/security.md` for where the credentials are stored and how to handle them safely.
 
 ---
 

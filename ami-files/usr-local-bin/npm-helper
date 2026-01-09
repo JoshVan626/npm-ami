@@ -3,8 +3,10 @@
 NPM Helper CLI Tool
 
 Provides administrative commands for managing Nginx Proxy Manager:
-- show-admin: Display current admin credentials
+- show-admin: Display current admin username and credentials location
+- show-creds: Display stored admin credentials (root only)
 - rotate-admin: Generate and set a new admin password
+- admin-access: Manage port 81 allowlist
 - status: Show system and service status
 """
 
@@ -15,6 +17,8 @@ import subprocess
 import sys
 import time
 import shutil
+import ipaddress
+import getpass
 from pathlib import Path
 
 # Import shared utilities
@@ -32,13 +36,15 @@ from npm_common import (
     AuthRecordNotFoundError,
     DatabaseTimeoutError,
     ADMIN_EMAIL,  # Configurable via NPM_ADMIN_EMAIL env var
+    CREDENTIALS_PATH,
+    migrate_legacy_credentials,
 )
 
 # Shared constants
 DB_PATH = "/opt/npm/data/database.sqlite"
-CREDENTIALS_PATH = "/root/npm-admin-credentials.txt"
 MOTD_PATH = "/etc/update-motd.d/50-npm-info"
 BACKUP_DIR = "/var/backups"
+CRED_ACCESS_LOG = "/var/log/northstar/cred-access.log"
 
 # Backup status sentinel files
 BACKUP_STATE_DIR = "/var/lib/northstar/npm"
@@ -326,11 +332,12 @@ def cmd_diagnostics(json_mode: bool = False):
 
 def cmd_show_admin():
     """
-    Display the current admin credentials from the credentials file.
+    Display the current admin username and credentials file location.
     
     Exits with code 1 if credentials file does not exist.
     """
-    cred_file = Path(CREDENTIALS_PATH)
+    require_root("show-admin")
+    cred_file = migrate_legacy_credentials()
     
     if not cred_file.exists():
         print("Error: Credentials file not found.")
@@ -342,23 +349,77 @@ def cmd_show_admin():
             lines = f.readlines()
         
         username = None
-        password = None
         
         for line in lines:
             line = line.strip()
             if line.startswith("Username:"):
                 username = line.split(":", 1)[1].strip()
-            elif line.startswith("Password:"):
-                password = line.split(":", 1)[1].strip()
         
-        if not username or not password:
+        if not username:
             print("Error: Could not parse credentials file.")
             sys.exit(1)
         
         print(f"Admin user: {username}")
-        print("Admin password: (not displayed)")
-        print("For security, the password is only shown on first login (MOTD).")
+        print(f"Credentials file: {cred_file}")
+        print("For security, use 'sudo npm-helper show-creds' to display the password.")
         
+    except Exception as e:
+        print(f"Error reading credentials file: {e}")
+        sys.exit(1)
+
+
+def confirm_sensitive_action(assume_yes: bool, action_label: str) -> None:
+    if assume_yes:
+        return
+    if not sys.stdin.isatty():
+        print(f"Error: {action_label} requires confirmation. Re-run with --yes.")
+        sys.exit(1)
+    response = input(f"WARNING: This will display sensitive credentials. Type 'yes' to continue: ")
+    if response.strip().lower() != "yes":
+        print("Aborted.")
+        sys.exit(1)
+
+
+def log_credential_access(user: str) -> None:
+    log_path = Path(CRED_ACCESS_LOG)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(log_path.parent, 0o750)
+    try:
+        os.chown(log_path.parent, 0, 0)
+    except PermissionError:
+        pass
+
+    timestamp = time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime())
+    entry = f"{timestamp} user={user} action=show-creds\n"
+    with open(log_path, "a", encoding="utf-8") as log_file:
+        log_file.write(entry)
+    os.chmod(log_path, 0o600)
+    try:
+        os.chown(log_path, 0, 0)
+    except PermissionError:
+        pass
+
+
+def cmd_show_creds(assume_yes: bool = False) -> None:
+    """
+    Display the current admin credentials from the credentials file.
+    """
+    require_root("show-creds")
+    cred_file = migrate_legacy_credentials()
+
+    if not cred_file.exists():
+        print("Error: Credentials file not found.")
+        print("Did npm-init run yet?")
+        sys.exit(1)
+
+    confirm_sensitive_action(assume_yes, "show-creds")
+
+    user = os.environ.get("SUDO_USER") or os.environ.get("USER") or getpass.getuser()
+    log_credential_access(user)
+
+    try:
+        with open(cred_file, "r", encoding="utf-8") as f:
+            sys.stdout.write(f.read())
     except Exception as e:
         print(f"Error reading credentials file: {e}")
         sys.exit(1)
@@ -417,6 +478,7 @@ def cmd_rotate_admin():
         # Write credentials file
         try:
             write_credentials_file(CREDENTIALS_PATH, ADMIN_EMAIL, new_password)
+            migrate_legacy_credentials()
             print("Credentials written to root-only credentials file.")
         except Exception as e:
             print(f"Error writing credentials file: {e}")
@@ -428,7 +490,7 @@ def cmd_rotate_admin():
             ip = detect_instance_ip()
             print(f"Detected instance IP: {ip}")
             
-            motd_content = build_motd_script(ip, ADMIN_EMAIL, new_password)
+            motd_content = build_motd_script(ip, ADMIN_EMAIL)
             
             with open(MOTD_PATH, 'w') as f:
                 f.write(motd_content)
@@ -446,6 +508,7 @@ def cmd_rotate_admin():
         print("\nPassword rotation completed successfully!")
         print(f"Admin user: {ADMIN_EMAIL}")
         print("New password: (not displayed)")
+        print(f"Credentials stored at: {CREDENTIALS_PATH}")
         
     except Exception as e:
         print(f"Unexpected error during password rotation: {e}")
@@ -616,6 +679,105 @@ def cmd_status():
     print("-" * 50)
 
 
+def validate_cidr(cidr: str) -> str:
+    try:
+        net = ipaddress.ip_network(cidr, strict=False)
+        if net.prefixlen == 0:
+            raise ValueError("Refusing global allowlist (use a narrow CIDR, e.g., /32).")
+        return str(net)
+    except ValueError as e:
+        if "Refusing global allowlist" in str(e):
+            raise
+        raise ValueError("Invalid CIDR. Example: 203.0.113.10/32")
+
+
+def parse_ufw_allowlist_81(output: str) -> list:
+    allowlist = []
+    for line in output.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if "81/tcp" in line and "ALLOW" in line:
+            allowlist.append(line)
+    return allowlist
+
+
+def ufw_status() -> str:
+    r = run_cmd(["ufw", "status"], timeout=10)
+    return r.stdout.strip()
+
+
+def cmd_admin_access(action: str, cidr: str = None) -> None:
+    """
+    Manage admin-plane access to port 81 (restricted by default).
+    """
+    require_root("admin-access")
+
+    if not shutil.which("ufw"):
+        print("Error: ufw not installed.")
+        sys.exit(1)
+
+    status_output = ufw_status()
+    allowlist = parse_ufw_allowlist_81(status_output)
+    sources = []
+    for line in allowlist:
+        parts = line.split()
+        if "ALLOW" in parts and "IN" in parts:
+            src_index = parts.index("IN") + 1
+            if src_index < len(parts):
+                sources.append(parts[src_index])
+
+    if action == "status":
+        if "Status: inactive" in status_output:
+            print("UFW status: inactive (security group controls access).")
+        if not allowlist:
+            print("Admin UI port 81: restricted (no allowlist rules).")
+        else:
+            print("Admin UI port 81: allowlist active.")
+            for line in allowlist:
+                print(f"  - {line}")
+        return
+
+    if action == "enable":
+        if not cidr:
+            print("Error: --cidr is required for enable.")
+            sys.exit(1)
+        try:
+            cidr = validate_cidr(cidr)
+        except ValueError as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+
+        if cidr in sources:
+            print(f"Admin UI allowlist already enabled for {cidr}.")
+            return
+
+        run_cmd(["ufw", "allow", "from", cidr, "to", "any", "port", "81", "proto", "tcp", "comment", "NPM Admin UI allowlist"], check=True)
+        print(f"Admin UI allowlist enabled for {cidr}.")
+        cmd_admin_access("status")
+        return
+
+    if action == "disable":
+        if not allowlist:
+            print("Admin UI allowlist already disabled.")
+            return
+
+        if any("Anywhere" in line for line in allowlist):
+            run_cmd(["ufw", "--force", "delete", "allow", "81/tcp"], check=False)
+
+        for src in sources:
+            if src in ("Anywhere", "Anywhere (v6)"):
+                continue
+            run_cmd(["ufw", "--force", "delete", "allow", "from", src, "to", "any", "port", "81", "proto", "tcp"], check=False)
+
+        print("Admin UI allowlist disabled.")
+        cmd_admin_access("status")
+        return
+
+    print("Error: invalid admin-access action.")
+    sys.exit(1)
+
+
 def main():
     """Main entry point for npm-helper CLI."""
     parser = argparse.ArgumentParser(
@@ -632,7 +794,7 @@ def main():
     # show-admin subcommand
     parser_show = subparsers.add_parser(
         "show-admin",
-        help="Display current admin credentials"
+        help="Display current admin username and credentials location"
     )
     
     # rotate-admin subcommand
@@ -645,6 +807,32 @@ def main():
     parser_status = subparsers.add_parser(
         "status",
         help="Show system and service status"
+    )
+
+    # show-creds subcommand
+    parser_creds = subparsers.add_parser(
+        "show-creds",
+        help="Display stored admin credentials (root only)"
+    )
+    parser_creds.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompt"
+    )
+
+    # admin-access subcommand
+    parser_admin_access = subparsers.add_parser(
+        "admin-access",
+        help="Manage admin UI allowlist for port 81"
+    )
+    parser_admin_access.add_argument(
+        "action",
+        choices=["enable", "disable", "status"],
+        help="Enable, disable, or show admin UI access state"
+    )
+    parser_admin_access.add_argument(
+        "--cidr",
+        help="CIDR to allow (required for enable)"
     )
 
     # update-os subcommand
@@ -664,10 +852,14 @@ def main():
     # Execute the appropriate command
     if args.command == "show-admin":
         cmd_show_admin()
+    elif args.command == "show-creds":
+        cmd_show_creds(assume_yes=getattr(args, "yes", False))
     elif args.command == "rotate-admin":
         cmd_rotate_admin()
     elif args.command == "status":
         cmd_status()
+    elif args.command == "admin-access":
+        cmd_admin_access(args.action, cidr=getattr(args, "cidr", None))
     elif args.command == "update-os":
         cmd_update_os()
     elif args.command == "diagnostics":
@@ -679,4 +871,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

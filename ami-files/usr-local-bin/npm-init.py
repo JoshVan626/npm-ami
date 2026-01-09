@@ -24,12 +24,14 @@ from npm_common import (
     hash_password,
     set_admin_password,
     write_credentials_file,
+    CREDENTIALS_PATH,
+    migrate_legacy_credentials,
 )
 
 # Configuration constants
 MARKER_FILE = Path("/var/lib/npm-init-complete")
 DB_PATH = Path("/opt/npm/data/database.sqlite")
-CREDENTIALS_FILE = Path("/root/npm-admin-credentials.txt")
+CREDENTIALS_FILE = Path(CREDENTIALS_PATH)
 MOTD_SCRIPT = Path("/etc/update-motd.d/50-npm-info")
 
 # Setup logging
@@ -176,9 +178,10 @@ def main() -> None:
     # 3) Finalize
     try:
         write_credentials_file(str(CREDENTIALS_FILE), ADMIN_EMAIL, password)
+        migrate_legacy_credentials()
 
         ip = detect_instance_ip()
-        motd_content = build_motd_script(ip, ADMIN_EMAIL, password)
+        motd_content = build_motd_script(ip, ADMIN_EMAIL)
         with open(MOTD_SCRIPT, "w", encoding="utf-8") as f:
             f.write(motd_content)
         os.chmod(MOTD_SCRIPT, 0o755)

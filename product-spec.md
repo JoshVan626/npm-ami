@@ -28,7 +28,7 @@ On first boot, the AMI automatically:
 - Initializes the NPM SQLite database.  
 - Generates a strong random admin password.  
 - Updates the admin user’s credential in the NPM database.  
-- Displays the login URL and credentials in the SSH login banner (MOTD).
+- Displays the login URL and a **non-sensitive** status message in the SSH login banner (MOTD).
 
 The result is a **self-contained reverse proxy appliance** that can be launched in minutes, with secure defaults and minimal manual configuration.
 
@@ -103,7 +103,7 @@ The result is a **self-contained reverse proxy appliance** that can be launched 
   - Writes a login banner (MOTD snippet) containing:
     - Admin URL: `http://<instance-public-ip>:81`  
     - Username: `admin@example.com`  
-    - Generated password  
+    - A pointer to the root-only credentials file (`sudo npm-helper show-creds`)  
   - Writes credentials to a root-only file on disk.  
   - Creates a marker file (e.g., `/var/lib/npm-init-complete`) so it never runs again on the same instance.
 
@@ -121,8 +121,8 @@ The result is a **self-contained reverse proxy appliance** that can be launched 
   - Inbound allowed:
     - 22/tcp – SSH  
     - 80/tcp – HTTP  
-    - 81/tcp – NPM admin GUI  
     - 443/tcp – HTTPS  
+    - 81/tcp – NPM admin GUI (restricted by default; allowlist required)  
   - Default deny for other inbound connections.  
 - System updates:
   - `unattended-upgrades` installed and enabled for security updates.
@@ -131,7 +131,7 @@ The result is a **self-contained reverse proxy appliance** that can be launched 
 
 - 22/tcp – SSH for admin access.  
 - 80/tcp – HTTP for proxied apps and HTTP-01 challenges.  
-- 81/tcp – NPM admin GUI.  
+- 81/tcp – NPM admin GUI (restricted by default).  
 - 443/tcp – HTTPS for proxied apps.
 
 #### Additional operational features (v1)
@@ -155,8 +155,10 @@ The result is a **self-contained reverse proxy appliance** that can be launched 
 
 - **NPM helper CLI tool**
   - `/usr/local/bin/npm-helper` with subcommands:
-    - `show-admin`: Re-print the generated admin username and password from the stored credentials file.  
+    - `show-admin`: Show the admin username and credentials file location.  
+    - `show-creds`: Display stored credentials (root only).  
     - `rotate-admin`: Generate a new strong admin password, update the NPM DB, update the stored credentials file, and refresh the MOTD snippet.  
+    - `admin-access`: Allowlist or restrict port 81 access (admin UI).  
     - `status`: Display basic stack status:
       - `docker.service` / `npm.service` state  
       - Container status  
@@ -204,7 +206,7 @@ When a new EC2 instance is launched from this AMI:
        - Locates the admin user’s `id` in the `user` table.  
        - Updates `auth.secret` for that `user_id` where `type = 'password'`.  
      - Writes credentials to a root-only file.  
-     - Writes an MOTD snippet showing the admin URL, user, and password.  
+     - Writes an MOTD snippet with no secrets and a pointer to `npm-helper show-creds`.  
      - Creates a marker file (e.g., `/var/lib/npm-init-complete`) so it does not run again on this instance.
 
 4. **Ready state**
@@ -287,7 +289,7 @@ On first SSH login as `ubuntu`, the MOTD displays:
 
 - A brief description of the product.  
 - NPM admin URL: `http://<instance-ip>:81`.  
-- Admin username and generated password.  
+- Admin username and a pointer to the root-only credentials file.  
 - A short onboarding checklist:
 
 1. Log into NPM and immediately change the admin password.  
@@ -365,8 +367,8 @@ CPU and memory usage are primarily driven by:
 - Inbound rules allow:
   - 22/tcp – SSH  
   - 80/tcp – HTTP  
-  - 81/tcp – NPM admin GUI  
   - 443/tcp – HTTPS  
+- 81/tcp – NPM admin GUI is restricted by default; allowlist required  
 - Default policy denies all other inbound connections.  
 - Customers can add additional UFW rules as needed.
 
@@ -384,7 +386,7 @@ CPU and memory usage are primarily driven by:
 - The default NPM admin account’s password is:
   - Generated at first boot per instance.  
   - Not stored in plaintext anywhere in the AMI.  
-  - Only displayed in MOTD on the running instance and stored in a root-only credentials file.
+  - Stored in a root-only credentials file and never printed in MOTD.
 
 ### 6.6 Additional hardening (v1)
 
@@ -421,7 +423,7 @@ CPU and memory usage are primarily driven by:
 - Issues where:
   - The AMI instance fails to boot correctly on supported instance types.  
   - The NPM container fails to start when launched with standard Marketplace instructions.  
-  - Admin credential generation appears broken (e.g., MOTD not showing password, login failures with generated password).  
+  - Admin credential generation appears broken (e.g., credentials file missing, login failures with generated password).  
   - Documentation or configuration examples are unclear or incorrect.
 
 ### 7.4 Out of scope (not included)
@@ -465,4 +467,3 @@ CPU and memory usage are primarily driven by:
 - Reassess pricing after:
   - Gathering real-world usage and feedback.  
   - Adding premium features (e.g., SSO integration, enhanced logging, additional hardening).
-

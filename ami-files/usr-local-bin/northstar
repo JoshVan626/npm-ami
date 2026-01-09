@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Northstar wrapper CLI for NPM helper commands.
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: northstar <command> [args]
+
+Commands:
+  status                     Show system and service status
+  creds [--yes]              Show stored admin credentials (root only)
+  admin-access <action>      Manage admin UI allowlist (enable|disable|status)
+  backup                     Run npm-backup
+  restore                    Run npm-restore
+  support-bundle             Run npm-support-bundle
+
+Examples:
+  sudo northstar status
+  sudo northstar creds --yes
+  sudo northstar admin-access enable --cidr 203.0.113.10/32
+EOF
+}
+
+cmd="${1:-}"
+if [[ -z "$cmd" ]]; then
+  usage
+  exit 1
+fi
+shift || true
+
+case "$cmd" in
+  status)
+    exec npm-helper status "$@"
+    ;;
+  creds)
+    exec npm-helper show-creds "$@"
+    ;;
+  admin-access)
+    exec npm-helper admin-access "$@"
+    ;;
+  backup)
+    exec npm-backup "$@"
+    ;;
+  restore)
+    exec npm-restore "$@"
+    ;;
+  support-bundle)
+    exec npm-support-bundle "$@"
+    ;;
+  -h|--help|help)
+    usage
+    ;;
+  *)
+    echo "Error: Unknown command '$cmd'."
+    usage
+    exit 1
+    ;;
+esac

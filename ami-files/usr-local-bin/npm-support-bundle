@@ -83,7 +83,7 @@ echo "  ✓ Service and container status collected"
 echo ""
 echo "[3/6] Collecting admin credential metadata..."
 
-CREDS_FILE="/root/npm-admin-credentials.txt"
+CREDS_FILE="/root/.northstar/npm-admin-credentials"
 if [[ -f "$CREDS_FILE" ]]; then
     # Copy credentials file but DO NOT include in bundle by default
     # Instead, include a note explaining where it is.
@@ -198,4 +198,3 @@ echo "  $BUNDLE_ARCHIVE"
 echo ""
 
 exit 0
-

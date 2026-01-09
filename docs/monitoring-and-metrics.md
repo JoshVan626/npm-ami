@@ -70,6 +70,14 @@ Attach an **instance role** with a policy similar to the following. This uses `R
 - **Agent logs**: `sudo journalctl -u amazon-cloudwatch-agent.service -n 200 --no-pager`
 - If you see `AccessDenied` or `UnauthorizedOperation`, attach an instance role with the permissions above and restart the agent: `sudo systemctl restart amazon-cloudwatch-agent.service`
 
+### Disable CloudWatch shipping (optional)
+
+If you do not want to send logs or metrics to CloudWatch:
+
+```bash
+sudo systemctl disable --now amazon-cloudwatch-agent.service
+```
+
 ## What the AMI is configured to send
 
 The CloudWatch Agent is installed and configured via:
