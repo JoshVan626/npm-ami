@@ -93,8 +93,8 @@ Run each script in order on a fresh Ubuntu 22.04 EC2 instance and verify:
 - [ ] UFW is configured and enabled:
   - [ ] Port 22/tcp allowed
   - [ ] Port 80/tcp allowed
-  - [ ] Port 81/tcp allowed
   - [ ] Port 443/tcp allowed
+  - [ ] Port 81/tcp restricted by default (allowlist required)
 - [ ] Fail2ban service is enabled and active
 - [ ] SSH host keys are removed (for AMI build)
 - [ ] SSH service reloads/restarts successfully
@@ -207,14 +207,14 @@ sudo npm-helper diagnostics --json | python3 -c 'import sys,json; json.load(sys.
 ### First Boot Initialization
 
 - [ ] `/var/lib/npm-init-complete` marker file exists
-- [ ] Credentials file exists (root-only, 0600)
+- [ ] Credentials file exists at `/root/.northstar/npm-admin-credentials` (root-only, 0600)
 - [ ] MOTD script `/etc/update-motd.d/50-npm-info` exists
 - [ ] Python helper scripts execute (syntax check): `python3 -m py_compile /usr/local/bin/npm-init.py /usr/local/bin/npm_common.py /usr/local/bin/npm-helper`
 - [ ] MOTD displays on SSH login with:
   - [ ] Product name
   - [ ] Admin URL (with IP address)
   - [ ] Username
-  - [ ] Password
+  - [ ] Credentials stored message (no secrets)
   - [ ] Onboarding checklist
 
 ### SSH Access
@@ -233,7 +233,7 @@ sudo npm-helper diagnostics --json | python3 -c 'import sys,json; json.load(sys.
 
 - [ ] Can access `http://<instance-ip>:81` in browser
 - [ ] Login page loads
-- [ ] Can log in with credentials from MOTD/credentials file
+- [ ] Can log in with credentials from credentials file
 - [ ] Admin dashboard loads after login
 - [ ] No JavaScript errors in browser console
 
@@ -246,7 +246,9 @@ sudo npm-helper diagnostics --json | python3 -c 'import sys,json; json.load(sys.
 
 ### CLI Tools
 
-- [ ] `npm-helper show-admin` displays credentials
+- [ ] `npm-helper show-admin` displays username and credentials location
+- [ ] `npm-helper show-creds` displays credentials (root only)
+- [ ] `npm-helper admin-access status` reports port 81 state
 - [ ] `npm-helper status` shows service and container status
 - [ ] `npm-helper rotate-admin` generates new password and updates:
   - [ ] NPM database
@@ -300,8 +302,8 @@ sudo npm-helper diagnostics --json | python3 -c 'import sys,json; json.load(sys.
 - [ ] Only required ports are open:
   - [ ] 22/tcp (SSH)
   - [ ] 80/tcp (HTTP)
-  - [ ] 81/tcp (NPM Admin)
   - [ ] 443/tcp (HTTPS)
+  - [ ] 81/tcp (NPM Admin) restricted by default
 - [ ] Other ports are blocked (test with `nc` or similar)
 
 ### Fail2ban
@@ -417,6 +419,3 @@ If issues are found during testing:
 4. Fix the issue
 5. Re-test the specific item
 6. Re-run full checklist if issue was critical
-
-
-

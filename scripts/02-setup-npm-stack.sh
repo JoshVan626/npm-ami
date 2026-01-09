@@ -64,7 +64,7 @@ echo ""
 echo "[3/6] Installing Python helper scripts and diagnostics..."
 
 PYTHON_SCRIPTS=("npm-init.py" "npm-helper" "npm_common.py")
-BASH_SCRIPTS=("npm-backup" "npm-restore" "npm-diagnostics" "npm-support-bundle" "npm-preflight" "npm-postinit" "npm-update-container" "npm-stack-start")
+BASH_SCRIPTS=("npm-backup" "npm-restore" "npm-diagnostics" "npm-support-bundle" "npm-preflight" "npm-postinit" "npm-update-container" "npm-stack-start" "northstar")
 
 # Copy Python scripts
 for script in "${PYTHON_SCRIPTS[@]}"; do
@@ -241,5 +241,4 @@ echo "  - Run 03-security-hardening.sh to configure security settings"
 echo ""
 
 exit 0
-
 

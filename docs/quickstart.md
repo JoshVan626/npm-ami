@@ -1,4 +1,4 @@
-# Quickstart
+# Nginx Proxy Manager (NPM) Quickstart
 
 This guide walks you from **nothing** to a working Nginx Proxy Manager admin
 panel on AWS using the Nginx Proxy Manager – Hardened Edition (Ubuntu 22.04) by Northstar Cloud Solutions.
@@ -19,9 +19,15 @@ panel on AWS using the Nginx Proxy Manager – Hardened Edition (Ubuntu 22.04) b
 6. Configure **network and security group** to allow:
    - `22/tcp` – SSH
    - `80/tcp` – HTTP
-   - `81/tcp` – NPM admin UI
    - `443/tcp` – HTTPS
+   - (Optional) `81/tcp` – NPM admin UI **only from your IP** (or use SSH tunnel)
 7. Launch the instance.
+
+---
+
+## Expected first boot timeline (2–5 minutes)
+
+On first boot, the instance initializes NPM, generates admin credentials, and starts the stack. This usually completes in **2–5 minutes** depending on instance size and image pull speed.
 
 ---
 
@@ -42,12 +48,19 @@ Once the instance is running:
 
    Admin URL: http://<instance-ip>:81
    Username: admin@example.com
-   Password: <generated-strong-password> (shown on first login only)
+   NPM initialized: credentials stored at /root/.northstar/npm-admin-credentials
+   Run: sudo npm-helper show-creds
    ```
 
-3. Credentials are shown on the **first SSH login** via the MOTD banner. For security, they are not re-printed on future logins.
+3. Credentials are **not printed in MOTD**. Retrieve them with:
 
-   If you need to retrieve or rotate credentials later, see **Security** (`docs/security.md`) and use `sudo npm-helper rotate-admin`.
+   ```bash
+   sudo npm-helper show-creds
+   ```
+
+   If you need to rotate credentials later, see **Security** (`docs/security.md`) and use `sudo npm-helper rotate-admin`.
+
+   Use `northstar` (recommended) or `npm-helper` directly for admin commands.
 
 ---
 
@@ -59,8 +72,14 @@ Once the instance is running:
    http://<instance-public-ip>:81
    ```
 
-2. Log in with the **username and password** from the MOTD or credentials file.
+2. Log in with the **username and password** from the credentials file.
 3. You’re now in the NPM admin interface.
+
+**Secure admin plane tip:** Do not expose port `81` to the internet. Use an SSH tunnel or allowlist a single trusted IP temporarily:
+
+```bash
+sudo npm-helper admin-access enable --cidr <your-ip>/32
+```
 
 ---
 
@@ -73,6 +92,21 @@ Check agent status:
 ```bash
 sudo systemctl status amazon-cloudwatch-agent --no-pager
 sudo journalctl -u amazon-cloudwatch-agent -n 200 --no-pager
+```
+
+## Logging disclosure (CloudWatch optional)
+
+When an instance role is attached, the CloudWatch agent can ship:
+
+- `/var/log/syslog`
+- `/var/log/auth.log`
+- Docker container logs (`/var/lib/docker/containers/*/*-json.log`)
+- Basic system metrics (CPU, memory, disk, network)
+
+To disable CloudWatch shipping:
+
+```bash
+sudo systemctl disable --now amazon-cloudwatch-agent.service
 ```
 
 ## 4. Create your first proxy host
@@ -111,6 +145,17 @@ sudo npm-helper status
 ```
 
 If those look good, you’re up and running.
+
+---
+
+## Verify installation
+
+Run these two commands on a fresh instance:
+
+```bash
+sudo npm-helper status
+sudo journalctl -u npm-init.service -b --no-pager | tail -n 50
+```
 
 ---
 

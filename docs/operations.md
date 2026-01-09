@@ -24,7 +24,7 @@ On first boot, `npm-init.service` runs once to:
 2. Generate a secure random admin password
 3. Update the database with the new credentials
 4. Write credentials to a root-only file
-5. Update the SSH login banner (MOTD)
+5. Update the SSH login banner (MOTD) with a non-sensitive status message
 
 The wait time accounts for slow instance types or cold container pulls.
 
@@ -33,7 +33,23 @@ The wait time accounts for slow instance types or cold container pulls.
 The default admin email is `admin@example.com` (NPM's default).
 
 To use a different email, set the `NPM_ADMIN_EMAIL` environment variable before
-first boot. For example, add to `/etc/environment`:
+first boot. The init service reads `/etc/northstar/npm-init.env` if present.
+
+**EC2 user-data (cloud-init) example:**
+
+```yaml
+#cloud-config
+write_files:
+  - path: /etc/northstar/npm-init.env
+    owner: root:root
+    permissions: '0600'
+    content: |
+      NPM_ADMIN_EMAIL=admin@yourdomain.com
+runcmd:
+  - [ systemctl, daemon-reload ]
+```
+
+If you prefer, you can also set it in `/etc/environment`:
 
 ```bash
 NPM_ADMIN_EMAIL=admin@yourdomain.com
@@ -165,20 +181,21 @@ is not coming up, check:
 
 ---
 
-## CLI: npm-helper
+## CLI: npm-helper (or northstar)
 
-`npm-helper` is installed under `/usr/local/bin`. It provides three main
-subcommands:
+`npm-helper` is installed under `/usr/local/bin`. A branded wrapper (`northstar`)
+is also available and recommended. It provides these main subcommands:
 
 ### Show current admin credentials
 
 ```bash
 sudo npm-helper show-admin
+sudo npm-helper show-creds
 ```
 
-Outputs the current admin username stored in:
-
-- the admin username (password is not displayed again after first login; see `docs/security.md`)
+Outputs the current admin username and credentials location. Credentials are
+stored at `/root/.northstar/npm-admin-credentials` (root-only). Use `show-creds`
+to display the password (root only).
 
 ### Rotate admin password
 
@@ -192,7 +209,7 @@ What it does:
 2. Generates a new strong random password.
 3. Updates the NPM `auth` table with the new bcrypt hash.
 4. Writes the new credentials to a root-only credentials file.
-5. Updates the MOTD banner (password is not re-printed after first login).
+5. Updates the MOTD banner (no secrets in MOTD).
 
 Use this whenever you want to rotate the admin password without touching the
 web UI.
@@ -216,6 +233,8 @@ Additional opt-in commands:
 
 - `sudo npm-helper update-os` – run a one-click `apt-get update` + `apt-get upgrade` (may require reboot)
 - `sudo npm-helper diagnostics --json` – emit non-sensitive diagnostic JSON for support/troubleshooting
+- `sudo npm-helper admin-access enable --cidr <ip>/32` – allowlist port 81 from a trusted IP
+- `sudo npm-helper admin-access disable` – remove allowlist rules for port 81
 
 ---
 
@@ -225,6 +244,7 @@ The CloudWatch Agent is configured to ship:
 
 - `/var/log/syslog`
 - `/var/log/auth.log`
+- `/var/lib/docker/containers/*/*-json.log`
 
 into a log group named:
 
@@ -232,7 +252,7 @@ into a log group named:
 /northstar-cloud-solutions/npm
 ```
 
-with per-instance log streams (e.g. `{instance_id}-syslog`, `{instance_id}-auth`).
+with per-instance log streams (e.g. `{instance_id}-syslog`, `{instance_id}-auth`, `{instance_id}-docker`).
 
 You can view these in:
 

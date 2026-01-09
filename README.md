@@ -1,8 +1,8 @@
-# Nginx Proxy Manager – Hardened Edition (Ubuntu 22.04)
+# Nginx Proxy Manager (NPM) – Hardened Edition (Ubuntu 22.04)
 
 **By Northstar Cloud Solutions LLC**
 
-A hardened, ready-to-run AWS AMI that provides a secure Nginx Proxy Manager instance with Docker, automatic credential generation, built-in backups, and CloudWatch integration.
+A hardened, ready-to-run AWS AMI that provides a **production-ready reverse proxy for AWS** with Nginx Proxy Manager (NPM), Docker, secure credential generation, built-in backups, and optional CloudWatch integration.
 
 ---
 
@@ -21,11 +21,12 @@ This repository is **not** intended to be a general-purpose installation guide. 
 - **Secure Ubuntu 22.04 LTS** base with hardening applied
 - **Docker Engine + Docker Compose** pre-installed
 - **Nginx Proxy Manager** running in a pinned Docker image
-- **Automatic first-boot initialization** with secure credential generation
+- **Automatic first-boot initialization** with secure credential generation (no secrets printed in MOTD)
 - **Built-in backup & restore tooling** (local + optional S3)
 - **Amazon CloudWatch integration** for logs and metrics
-- **Security hardening** (SSH, UFW, fail2ban, sysctl)
+- **Security hardening** (SSH, UFW, fail2ban, sysctl) with a restricted admin plane by default
 - **Operational helper tools**:
+  - `northstar` (recommended wrapper)
   - `npm-helper`
   - `npm-backup`
   - `npm-restore`
@@ -45,6 +46,25 @@ The Quickstart covers:
 - First login and credential retrieval
 - Accessing the Nginx Proxy Manager UI
 - Basic security and networking requirements
+
+Use `northstar` (recommended) or `npm-helper` directly for lifecycle and security actions.
+
+---
+
+## Expected first boot timeline (2–5 minutes)
+
+On first boot, the instance initializes NPM, generates admin credentials, and starts the stack. This usually completes in **2–5 minutes** depending on instance size and image pull speed.
+
+---
+
+## Verify installation
+
+Run these two commands on a fresh instance:
+
+```bash
+sudo npm-helper status
+sudo journalctl -u npm-init.service -b --no-pager | tail -n 50
+```
 
 ---
 
@@ -98,7 +118,7 @@ Northstar Cloud Solutions LLC is responsible for:
 
 - **CloudWatch Logs**
   - Log group: `/northstar-cloud-solutions/npm`
-  - System logs (`syslog`, `auth.log`)
+  - System logs (`syslog`, `auth.log`) and Docker container logs
 - **CloudWatch Metrics**
   - Namespace: `NorthstarCloudSolutions/System`
   - Memory and disk usage
@@ -106,6 +126,23 @@ Northstar Cloud Solutions LLC is responsible for:
 Cost & permissions notes:
 - CloudWatch logs/metrics are optional and require an instance role/policy. CloudWatch costs vary by log volume and retention; you control retention in CloudWatch.
 - Optional S3 backups incur S3 costs and require an instance role/policy (see `docs/backup-restore.md`).
+
+---
+
+## Logging disclosure (CloudWatch optional)
+
+When an instance role is attached, the CloudWatch agent can ship:
+
+- `/var/log/syslog`
+- `/var/log/auth.log`
+- Docker container logs (`/var/lib/docker/containers/*/*-json.log`)
+- Basic system metrics (CPU, memory, disk, network)
+
+To disable CloudWatch shipping:
+
+```bash
+sudo systemctl disable --now amazon-cloudwatch-agent.service
+```
 
 ---
 

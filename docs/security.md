@@ -17,7 +17,7 @@ This AMI ships with a conservative security baseline applied out of the box.
 - You **must** use SSH keys to access the instance.
 - Logging in directly as `root` via SSH is disabled.
 - You should SSH as `ubuntu` (or another user you configure) and use `sudo`.
-- Initial admin credentials are stored in `/root/npm-admin-credentials.txt` (root-only, `0600`). Rotate the password after first login and delete the file if your policy requires it.
+- Initial admin credentials are stored in `/root/.northstar/npm-admin-credentials` (root-only, `0600`). Retrieve them with `sudo npm-helper show-creds` and rotate the password after first login.
 
 ---
 
@@ -31,8 +31,21 @@ UFW is installed and configured to:
 
   - `22/tcp` – SSH
   - `80/tcp` – HTTP
-  - `81/tcp` – NPM admin UI
   - `443/tcp` – HTTPS
+
+Port `81/tcp` (NPM Admin UI) is **restricted by default**. To allow access from a trusted IP:
+
+```bash
+sudo npm-helper admin-access enable --cidr <your-ip>/32
+```
+
+Disable the allowlist when finished:
+
+```bash
+sudo npm-helper admin-access disable
+```
+
+Do **not** expose port 81 to the public internet; use an SSH tunnel or a temporary single-IP allowlist.
 
 Check rules:
 

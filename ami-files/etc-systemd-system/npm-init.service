@@ -10,6 +10,7 @@ StartLimitBurst=5
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+EnvironmentFile=-/etc/northstar/npm-init.env
 ExecStart=/usr/local/bin/npm-init.py
 StandardOutput=journal
 StandardError=journal
@@ -18,4 +19,3 @@ RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
-
