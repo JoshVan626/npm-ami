@@ -8,9 +8,14 @@ Provides administrative commands for managing Nginx Proxy Manager:
 - rotate-admin: Generate and set a new admin password
 - admin-access: Manage port 81 allowlist
 - status: Show system and service status
+- cert-check: Check certificate expiry
+- upgrade: Safe, backup-first upgrade workflow
+- backup verify: Verify latest backup archive
+- restore: Restore a backup archive (supports dry-run)
 """
 
 import argparse
+import configparser
 import json
 import os
 import subprocess
@@ -19,6 +24,7 @@ import time
 import shutil
 import ipaddress
 import getpass
+from datetime import datetime
 from pathlib import Path
 
 # Import shared utilities
@@ -44,7 +50,15 @@ from npm_common import (
 DB_PATH = "/opt/npm/data/database.sqlite"
 MOTD_PATH = "/etc/update-motd.d/50-npm-info"
 BACKUP_DIR = "/var/backups"
+BACKUP_CONFIG = "/etc/npm-backup.conf"
 CRED_ACCESS_LOG = "/var/log/northstar/cred-access.log"
+CERT_CHECK_CONFIG = "/etc/npm-cert-check.conf"
+DEFAULT_CERT_THRESHOLD_DAYS = 30
+CERT_SEARCH_DIRS = [
+    "/opt/npm/letsencrypt",
+    "/opt/npm/data/letsencrypt",
+    "/etc/letsencrypt",
+]
 
 # Backup status sentinel files
 BACKUP_STATE_DIR = "/var/lib/northstar/npm"
@@ -73,6 +87,100 @@ def run_cmd(cmd, *, cwd=None, timeout=60, check=False):
         timeout=timeout,
         check=check,
     )
+
+
+def read_config_value(config_path: str, section: str, key: str, fallback=None):
+    config = configparser.ConfigParser()
+    try:
+        config.read(config_path)
+        return config.get(section, key, fallback=fallback)
+    except Exception:
+        return fallback
+
+
+def read_config_int(config_path: str, section: str, key: str, fallback: int) -> int:
+    value = read_config_value(config_path, section, key, fallback=str(fallback))
+    try:
+        return int(str(value).strip())
+    except Exception:
+        return fallback
+
+
+def get_backup_dir() -> str:
+    return read_config_value(BACKUP_CONFIG, "backup", "local_backup_dir", fallback=BACKUP_DIR)
+
+
+def get_backup_retention() -> int:
+    return read_config_int(BACKUP_CONFIG, "backup", "local_retention", fallback=7)
+
+
+def parse_cert_expiry(cert_path: Path):
+    try:
+        result = run_cmd(["openssl", "x509", "-enddate", "-noout", "-in", str(cert_path)], timeout=10)
+    except FileNotFoundError:
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    line = result.stdout.strip()
+    if not line.startswith("notAfter="):
+        return None
+    raw = line.split("=", 1)[1].strip()
+    try:
+        if raw.endswith("GMT"):
+            raw = raw.replace(" GMT", "")
+        expiry = datetime.strptime(raw, "%b %d %H:%M:%S %Y")
+        return expiry
+    except Exception:
+        return None
+
+
+def find_cert_files():
+    cert_files = []
+    seen = set()
+    for base in CERT_SEARCH_DIRS:
+        path = Path(base)
+        if not path.is_dir():
+            continue
+        for name in ("fullchain.pem", "cert.pem"):
+            for cert in path.rglob(name):
+                if cert.is_file():
+                    if cert.resolve() in seen:
+                        continue
+                    cert_files.append(cert)
+                    seen.add(cert.resolve())
+    return cert_files
+
+
+def get_cert_expiry_summary(threshold_days: int):
+    certs = find_cert_files()
+    if not certs:
+        return {"status": "none", "message": "no certificates found"}
+
+    now = datetime.utcnow()
+    soonest = None
+    soonest_path = None
+    for cert in certs:
+        expiry = parse_cert_expiry(cert)
+        if not expiry:
+            continue
+        if soonest is None or expiry < soonest:
+            soonest = expiry
+            soonest_path = cert
+
+    if not soonest:
+        return {"status": "unknown", "message": "unable to parse certificate expiry"}
+
+    days_remaining = int((soonest - now).total_seconds() / 86400)
+    status = "warn" if days_remaining <= threshold_days else "ok"
+    message = f"next expiry {soonest.strftime('%Y-%m-%d')} (in {days_remaining} days)"
+    if soonest_path:
+        message = f"{message} at {soonest_path}"
+    return {
+        "status": status,
+        "message": message,
+        "days_remaining": days_remaining,
+        "path": str(soonest_path) if soonest_path else None,
+    }
 
 
 def cmd_update_os():
@@ -111,6 +219,274 @@ def cmd_update_os():
     print(f"NORTHSTAR_UPDATE_OS status=success duration_s={duration}")
     sys.exit(0)
 
+
+def cmd_cert_check() -> None:
+    """
+    Run the certificate expiry check immediately.
+    """
+    require_root("cert-check")
+    if not Path("/usr/local/bin/npm-cert-check").exists():
+        print("Error: npm-cert-check script not found.")
+        sys.exit(1)
+    try:
+        result = subprocess.run(["/usr/local/bin/npm-cert-check"], check=False)
+        sys.exit(result.returncode)
+    except Exception as e:
+        print(f"Error: failed to run cert check: {e}")
+        sys.exit(1)
+
+
+def cmd_upgrade(dry_run: bool = False) -> None:
+    """
+    Safely upgrade the NPM stack using the existing compose file pins.
+    """
+    require_root("upgrade")
+
+    compose_dir = "/opt/npm"
+    compose_file = Path(f"{compose_dir}/docker-compose.yml")
+    backup_dir = get_backup_dir()
+    min_free_bytes = 1024 * 1024 * 1024  # 1 GiB
+    steps = [
+        "Preflight checks",
+        "Run npm-backup",
+        "docker compose pull",
+        "Restart npm.service",
+        "Post-upgrade health check",
+    ]
+
+    print("NPM Upgrade (safe, backup-first)")
+    print("=" * 50)
+    if dry_run:
+        print("Dry run mode: no changes will be made.")
+        print("")
+
+    # Preflight checks
+    issues = []
+    if not compose_file.exists():
+        issues.append(f"compose file missing: {compose_file}")
+
+    try:
+        docker_state = run_cmd(["systemctl", "is-active", "docker"], timeout=5)
+        if docker_state.returncode != 0 or docker_state.stdout.strip() != "active":
+            issues.append("docker service is not active")
+    except Exception:
+        issues.append("unable to check docker service status")
+
+    if not Path("/usr/local/bin/npm-backup").exists():
+        issues.append("npm-backup not found")
+
+    if not Path(backup_dir).exists():
+        issues.append(f"backup dir not found: {backup_dir}")
+    elif not os.access(backup_dir, os.W_OK):
+        issues.append(f"backup dir not writable: {backup_dir}")
+    else:
+        try:
+            backup_usage = shutil.disk_usage(backup_dir)
+            if backup_usage.free < min_free_bytes:
+                issues.append(f"low disk space in backup dir (less than 1GiB free): {backup_dir}")
+        except Exception:
+            issues.append(f"unable to check disk space in backup dir: {backup_dir}")
+
+    try:
+        usage = shutil.disk_usage("/")
+        if usage.free < min_free_bytes:
+            issues.append("low disk space on / (less than 1GiB free)")
+    except Exception:
+        issues.append("unable to check disk space on /")
+
+    if issues:
+        print("Preflight checks failed:")
+        for issue in issues:
+            print(f" - {issue}")
+        sys.exit(1)
+
+    if dry_run:
+        print("Planned steps:")
+        for step in steps:
+            print(f" - {step}")
+        sys.exit(0)
+
+    backup_path = None
+    print("Running safety backup...")
+    backup_proc = run_cmd(["/usr/local/bin/npm-backup"], timeout=1800)
+    if backup_proc.returncode != 0:
+        print("Error: backup failed; aborting upgrade.")
+        if backup_proc.stdout:
+            print(backup_proc.stdout.strip())
+        if backup_proc.stderr:
+            print(backup_proc.stderr.strip())
+        sys.exit(1)
+    if backup_proc.stdout.strip():
+        print(backup_proc.stdout.strip())
+    for line in backup_proc.stdout.splitlines():
+        if "NORTHSTAR_BACKUP" in line and "path=" in line:
+            backup_path = line.split("path=", 1)[1].strip().split()[0]
+            break
+    if not backup_path:
+        backup_path = "unknown"
+
+    print("Pulling container images...")
+    pull_proc = run_cmd(["docker", "compose", "pull"], cwd=compose_dir, timeout=1800)
+    if pull_proc.returncode != 0:
+        print("Error: docker compose pull failed.")
+        if pull_proc.stdout:
+            print(pull_proc.stdout.strip())
+        if pull_proc.stderr:
+            print(pull_proc.stderr.strip())
+        sys.exit(1)
+
+    print("Restarting NPM stack...")
+    restart_proc = run_cmd(["systemctl", "restart", "npm.service"], timeout=300)
+    if restart_proc.returncode != 0:
+        print("Error: failed to restart npm.service.")
+        sys.exit(1)
+
+    print("Post-upgrade health check...")
+    health_ok = False
+    try:
+        ps = run_cmd(["docker", "compose", "ps", "--format", "json"], cwd=compose_dir, timeout=10)
+        if ps.returncode == 0 and ps.stdout.strip():
+            containers = []
+            for line in ps.stdout.strip().splitlines():
+                try:
+                    obj = json.loads(line)
+                    containers.append(obj)
+                except Exception:
+                    continue
+            if any(c.get("State") == "running" for c in containers):
+                health_ok = True
+    except Exception:
+        pass
+
+    if shutil.which("curl"):
+        curl = run_cmd(["curl", "-sS", "-m", "5", "http://localhost:81"], timeout=10)
+        if curl.returncode == 0:
+            health_ok = True
+
+    if not health_ok:
+        print("Error: health check did not confirm NPM is running.")
+        print("Check 'docker compose ps' or systemctl status npm.service for details.")
+        print("Rollback steps:")
+        print(f"  1. sudo npm-helper restore {backup_path}")
+        print("  2. sudo systemctl restart npm.service")
+        sys.exit(1)
+
+    print("")
+    print("Upgrade completed.")
+    print(f"Backup used: {backup_path}")
+    print("Rollback steps:")
+    print(f"  1. sudo npm-helper restore {backup_path}")
+    print("  2. sudo systemctl restart npm.service")
+    sys.exit(0)
+
+
+def cmd_backup_verify() -> None:
+    """
+    Verify the most recent backup archive for expected contents.
+    """
+    require_root("backup verify")
+    backup_dir = Path(get_backup_dir())
+    min_size_bytes = 1024 * 1024  # 1 MiB
+    retention = get_backup_retention()
+
+    print("NPM Backup Verification")
+    print("=" * 50)
+
+    if not backup_dir.exists():
+        print(f"Backup directory not found: {backup_dir}")
+        print("Summary: RED")
+        sys.exit(1)
+
+    backups = sorted(backup_dir.glob("npm-*.tar.gz"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not backups:
+        print("No backup archives found.")
+        print("Summary: RED")
+        sys.exit(1)
+
+    latest = backups[0]
+    warnings = []
+    errors = []
+
+    if latest.stat().st_size < min_size_bytes:
+        errors.append(f"backup file is smaller than expected ({latest.stat().st_size} bytes)")
+
+    tar_list = run_cmd(["tar", "-tzf", str(latest)], timeout=30)
+    if tar_list.returncode != 0:
+        errors.append("unable to read backup archive (tar -tzf failed)")
+    else:
+        lines = tar_list.stdout.splitlines()
+        has_data = any(line.startswith("opt/npm/data/") for line in lines)
+        has_letsencrypt = any(line.startswith("opt/npm/letsencrypt/") for line in lines)
+
+        if not has_data:
+            errors.append("missing opt/npm/data in archive")
+        if not has_letsencrypt:
+            warnings.append("missing opt/npm/letsencrypt in archive (no certs yet?)")
+
+    if retention and len(backups) > retention:
+        warnings.append(f"backup count {len(backups)} exceeds retention setting {retention}")
+
+    print(f"Latest backup: {latest}")
+    print(f"Size: {latest.stat().st_size} bytes")
+    if errors:
+        print("Issues:")
+        for issue in errors:
+            print(f" - {issue}")
+    if warnings:
+        print("Warnings:")
+        for warn in warnings:
+            print(f" - {warn}")
+
+    if errors:
+        print("Summary: RED")
+        sys.exit(1)
+    if warnings:
+        print("Summary: YELLOW")
+        sys.exit(2)
+
+    print("Summary: GREEN")
+    sys.exit(0)
+
+
+def cmd_restore(backup_path: str, dry_run: bool = False) -> None:
+    """
+    Restore a backup archive. Dry-run validates without changes.
+    """
+    require_root("restore")
+    if not backup_path:
+        print("Error: backup archive path required.")
+        sys.exit(1)
+    backup = Path(backup_path)
+    if not backup.exists():
+        print(f"Error: backup archive not found: {backup}")
+        sys.exit(1)
+
+    if dry_run:
+        tar_list = run_cmd(["tar", "-tzf", str(backup)], timeout=30)
+        if tar_list.returncode != 0:
+            print("Error: unable to read backup archive (tar -tzf failed).")
+            sys.exit(1)
+        lines = tar_list.stdout.splitlines()
+        targets = []
+        if any(line.startswith("opt/npm/data/") for line in lines):
+            targets.append("/opt/npm/data")
+        if any(line.startswith("opt/npm/letsencrypt/") for line in lines):
+            targets.append("/opt/npm/letsencrypt")
+
+        if not targets:
+            print("Error: backup archive does not contain expected NPM paths.")
+            sys.exit(1)
+
+        print("Restore dry run")
+        print("=" * 50)
+        print(f"Backup archive: {backup}")
+        print("Would restore:")
+        for target in targets:
+            print(f" - {target}")
+        sys.exit(0)
+
+    result = subprocess.run(["/usr/local/bin/npm-restore", str(backup)], check=False)
+    sys.exit(result.returncode)
 
 def parse_status_line(line: str):
     """
@@ -181,6 +557,8 @@ def cmd_diagnostics(json_mode: bool = False):
         "npm-postinit.service",
         "npm-backup.timer",
         "npm-backup.service",
+        "npm-cert-check.timer",
+        "npm-cert-check.service",
     ]
     unit_statuses = []
     for u in units:
@@ -548,6 +926,7 @@ def cmd_status():
     Exits with code 0 unless an unexpected error occurs.
     """
     status_info = {}
+    unit_info = []
     
     # Check Docker service status
     try:
@@ -613,6 +992,19 @@ def cmd_status():
         container_status = f"error checking ({e})"
     
     status_info["container"] = container_status
+
+    # Systemd unit status (core + timers)
+    units = ["npm.service", "npm-init.service", "npm-backup.timer", "npm-cert-check.timer"]
+    for unit in units:
+        info = {"unit": unit, "active": "unknown", "enabled": "unknown"}
+        try:
+            active = run_cmd(["systemctl", "is-active", unit], timeout=5)
+            enabled = run_cmd(["systemctl", "is-enabled", unit], timeout=5)
+            info["active"] = active.stdout.strip() if active.stdout.strip() else "unknown"
+            info["enabled"] = enabled.stdout.strip() if enabled.stdout.strip() else "unknown"
+        except Exception as e:
+            info["error"] = str(e)
+        unit_info.append(info)
     
     # Find last backup file
     last_backup_file = "none found"
@@ -637,12 +1029,40 @@ def cmd_status():
     postinit_status = read_sentinel_file(POSTINIT_STATUS)
     init_complete = Path(INIT_MARKER_FILE).exists()
     
+    # Admin UI allowlist (UFW)
+    admin_access_lines = []
+    try:
+        if shutil.which("ufw"):
+            status_output = ufw_status()
+            allowlist = parse_ufw_allowlist_81(status_output)
+            if "Status: inactive" in status_output:
+                admin_access_lines.append("UFW: inactive (security group controls access)")
+            if not allowlist:
+                admin_access_lines.append("Admin UI port 81: restricted (no allowlist rules)")
+            else:
+                admin_access_lines.append("Admin UI port 81: allowlist active")
+                for line in allowlist:
+                    admin_access_lines.append(f"  - {line}")
+        else:
+            admin_access_lines.append("UFW: not installed")
+    except Exception as e:
+        admin_access_lines.append(f"Admin UI access: unknown ({e})")
+
+    # Certificate expiry summary
+    threshold = read_config_int(CERT_CHECK_CONFIG, "cert-check", "threshold_days", DEFAULT_CERT_THRESHOLD_DAYS)
+    cert_summary = get_cert_expiry_summary(threshold)
+
     # Print status summary
     print("NPM System Status")
     print("=" * 50)
     print(f"Docker service:   {status_info['docker']}")
     print(f"npm service:      {status_info['npm']}")
     print(f"NPM container:    {status_info['container']}")
+    print("")
+    print("Systemd Units")
+    print("-" * 50)
+    for info in unit_info:
+        print(f"{info['unit']}: active={info.get('active')} enabled={info.get('enabled')}")
     print("=" * 50)
     print("")
     print("Initialization Status")
@@ -656,6 +1076,12 @@ def cmd_status():
         print(f"Post-init:       {postinit_status}")
     else:
         print("Post-init:       not yet run")
+    print("-" * 50)
+    print("")
+    print("Admin UI Access")
+    print("-" * 50)
+    for line in admin_access_lines:
+        print(line)
     print("-" * 50)
 
     print("")
@@ -675,7 +1101,19 @@ def cmd_status():
     
     if backup_last_failure:
         print(f"Last failure:     {backup_last_failure}")
-    
+
+    print("-" * 50)
+    print("")
+    print("Certificate Expiry")
+    print("-" * 50)
+    if cert_summary.get("status") == "none":
+        print("No certificates found.")
+    elif cert_summary.get("status") == "unknown":
+        print("Unable to parse certificate expiry.")
+    else:
+        print(f"Next expiry:      {cert_summary.get('message')}")
+        if cert_summary.get("status") == "warn":
+            print("Status:           WARNING (expires within threshold)")
     print("-" * 50)
 
 
@@ -809,6 +1247,12 @@ def main():
         help="Show system and service status"
     )
 
+    # cert-check subcommand
+    subparsers.add_parser(
+        "cert-check",
+        help="Run certificate expiry checks"
+    )
+
     # show-creds subcommand
     parser_creds = subparsers.add_parser(
         "show-creds",
@@ -838,6 +1282,32 @@ def main():
     # update-os subcommand
     subparsers.add_parser("update-os", help="Run a one-click OS update (apt-get update && apt-get upgrade)")
 
+    # upgrade subcommand
+    parser_upgrade = subparsers.add_parser("upgrade", help="Upgrade the NPM stack safely (backup-first)")
+    parser_upgrade.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Perform preflight checks and show planned steps"
+    )
+
+    # backup subcommand
+    parser_backup = subparsers.add_parser("backup", help="Backup helper commands")
+    backup_sub = parser_backup.add_subparsers(dest="backup_action", required=True)
+    backup_sub.add_parser("verify", help="Verify the most recent backup archive")
+
+    # restore subcommand
+    parser_restore = subparsers.add_parser("restore", help="Restore a backup archive")
+    parser_restore.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate archive contents without restoring"
+    )
+    parser_restore.add_argument(
+        "backup_path",
+        nargs="?",
+        help="Backup archive path"
+    )
+
     # diagnostics subcommand
     parser_diag = subparsers.add_parser("diagnostics", help="Collect non-sensitive diagnostics for troubleshooting")
     parser_diag.add_argument(
@@ -858,10 +1328,22 @@ def main():
         cmd_rotate_admin()
     elif args.command == "status":
         cmd_status()
+    elif args.command == "cert-check":
+        cmd_cert_check()
     elif args.command == "admin-access":
         cmd_admin_access(args.action, cidr=getattr(args, "cidr", None))
     elif args.command == "update-os":
         cmd_update_os()
+    elif args.command == "upgrade":
+        cmd_upgrade(dry_run=getattr(args, "dry_run", False))
+    elif args.command == "backup":
+        if args.backup_action == "verify":
+            cmd_backup_verify()
+        else:
+            print("Error: invalid backup action.")
+            sys.exit(1)
+    elif args.command == "restore":
+        cmd_restore(getattr(args, "backup_path", None), dry_run=getattr(args, "dry_run", False))
     elif args.command == "diagnostics":
         cmd_diagnostics(json_mode=getattr(args, "json", False))
     else:

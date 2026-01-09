@@ -85,13 +85,17 @@ require_file "ami-files/etc-systemd-system/npm-init.service"
 require_file "ami-files/etc-systemd-system/npm-postinit.service"
 require_file "ami-files/etc-systemd-system/npm-backup.service"
 require_file "ami-files/etc-systemd-system/npm-backup.timer"
+require_file "ami-files/etc-systemd-system/npm-cert-check.service"
+require_file "ami-files/etc-systemd-system/npm-cert-check.timer"
 require_file "ami-files/opt-aws/amazon-cloudwatch-agent/amazon-cloudwatch-agent.json"
 require_file "ami-files/usr-local-bin/npm-backup"
+require_file "ami-files/usr-local-bin/npm-cert-check"
 require_file "ami-files/usr-local-bin/npm-restore"
 require_file "ami-files/usr-local-bin/npm-stack-start"
 require_file "ami-files/usr-local-bin/npm-preflight"
 require_file "ami-files/usr-local-bin/npm-postinit"
 require_file "ami-files/usr-local-bin/northstar"
+require_file "ami-files/etc/npm-cert-check.conf"
 
 # 2) Python validation (compile)
 PY_CANDIDATES=(
@@ -122,7 +126,62 @@ python_pycompile "${PY_FILES[@]}"
 # 2b) Lightweight v1.0 contract checks (no execution)
 require_grep "$AMI_FILES/usr-local-bin/npm-helper" "subparsers\.add_parser\\([[:space:]]*\"update-os\""
 require_grep "$AMI_FILES/usr-local-bin/npm-helper" "subparsers\.add_parser\\([[:space:]]*\"diagnostics\""
+require_grep "$AMI_FILES/usr-local-bin/npm-helper" "subparsers\.add_parser\\([[:space:]]*\"cert-check\""
+require_grep "$AMI_FILES/usr-local-bin/npm-helper" "subparsers\.add_parser\\([[:space:]]*\"upgrade\""
+require_grep "$AMI_FILES/usr-local-bin/npm-helper" "subparsers\.add_parser\\([[:space:]]*\"backup\""
+require_grep "$AMI_FILES/usr-local-bin/npm-helper" "subparsers\.add_parser\\([[:space:]]*\"restore\""
 require_grep "$AMI_FILES/usr-local-bin/npm_common.py" "Security expectations"
+require_grep "$AMI_FILES/usr-local-bin/npm_common.py" "Run: sudo npm-helper show-creds"
+
+# 2c) Docs mention new commands (light checks)
+require_grep "$REPO_ROOT/docs/operations.md" "npm-helper cert-check"
+require_grep "$REPO_ROOT/docs/operations.md" "npm-helper upgrade"
+require_grep "$REPO_ROOT/docs/backup-restore.md" "npm-helper backup verify"
+require_grep "$REPO_ROOT/docs/backup-restore.md" "npm-helper restore --dry-run"
+
+# 2d) Ensure MOTD snippets do not print secrets
+if python3 - "$AMI_FILES/usr-local-bin/npm_common.py" <<'PY'
+import sys
+
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as handle:
+    lines = handle.readlines()
+
+start = None
+end = None
+for i, line in enumerate(lines):
+    if line.startswith("def build_motd_script"):
+        start = i
+        continue
+    if start is not None and line.startswith("def ") and i > start:
+        end = i
+        break
+
+if start is None:
+    sys.exit(1)
+
+block = "".join(lines[start:end])
+sys.exit(0 if "Password:" not in block else 2)
+PY
+then
+  pass "motd contains no password string"
+else
+  fail "motd contains password string"
+fi
+
+# 2e) Ensure cert-check does not reference private key material
+if grep -qE "privkey\.pem" "$AMI_FILES/usr-local-bin/npm-cert-check"; then
+  fail "cert-check references privkey.pem"
+else
+  pass "cert-check does not reference privkey.pem"
+fi
+
+# 2f) Ensure security hardening does not open admin port 81 by default
+if grep -qE "ufw[[:space:]]+allow[[:space:]]+81" "$REPO_ROOT/scripts/03-security-hardening.sh"; then
+  fail "security hardening opens port 81 by default"
+else
+  pass "security hardening does not open port 81 by default"
+fi
 
 # 3) Optional: systemd unit verification (if available)
 if command -v systemd-analyze >/dev/null 2>&1; then

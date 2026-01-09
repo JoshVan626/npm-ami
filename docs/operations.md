@@ -153,6 +153,7 @@ Key services:
 - `npm-init.service` – one-time first-boot initialization
 - `npm-postinit.service` – first-boot post-init health summary
 - `npm-backup.timer` – daily backup timer
+- `npm-cert-check.timer` – daily certificate expiry check
 - `amazon-cloudwatch-agent.service` – CloudWatch log shipping
 
 Basic commands:
@@ -225,7 +226,10 @@ Shows:
 - Docker service status
 - `npm` service status
 - Container status from `docker compose ps`
-- Last backup timestamp found under `/var/backups`
+- Initialization markers and core systemd unit states
+- Admin UI access posture (UFW allowlist)
+- Backup status (last run/success/failure)
+- Certificate expiry summary (next expiry, days remaining)
 
 This is a quick way to check if the system is healthy.
 
@@ -235,6 +239,63 @@ Additional opt-in commands:
 - `sudo npm-helper diagnostics --json` – emit non-sensitive diagnostic JSON for support/troubleshooting
 - `sudo npm-helper admin-access enable --cidr <ip>/32` – allowlist port 81 from a trusted IP
 - `sudo npm-helper admin-access disable` – remove allowlist rules for port 81
+- `sudo npm-helper cert-check` – run the certificate expiry check immediately
+- `sudo npm-helper upgrade --dry-run` – preflight + show planned steps
+- `sudo npm-helper upgrade` – run a backup-first upgrade using the existing compose pins
+- `sudo npm-helper backup verify` – verify the latest backup archive
+- `sudo npm-helper restore --dry-run <backup>` – validate a restore without changes
+
+---
+
+## Certificate expiry monitoring
+
+A daily systemd timer checks NPM-managed certificates and logs warnings when
+any certificate is within the configured threshold.
+
+Run it manually:
+
+```bash
+sudo npm-helper cert-check
+```
+
+Configuration file (threshold days):
+
+```ini
+/etc/npm-cert-check.conf
+```
+
+To change the warning threshold, edit `threshold_days` in that file and rerun the
+check or wait for the next timer run.
+
+Disable the timer:
+
+```bash
+sudo systemctl disable --now npm-cert-check.timer
+```
+
+If CloudWatch Agent is enabled, warnings include a `NORTHSTAR_CERT_EXPIRY_WARN`
+log line for easy alerting.
+
+---
+
+## Upgrade safely
+
+Use the upgrade helper to perform a backup-first upgrade using the **existing**
+compose file pins (no automatic version changes).
+
+Dry-run preflight:
+
+```bash
+sudo npm-helper upgrade --dry-run
+```
+
+Upgrade:
+
+```bash
+sudo npm-helper upgrade
+```
+
+The command prints rollback steps using the latest backup and `npm-helper restore`.
 
 ---
 

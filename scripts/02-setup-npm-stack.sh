@@ -64,7 +64,7 @@ echo ""
 echo "[3/6] Installing Python helper scripts and diagnostics..."
 
 PYTHON_SCRIPTS=("npm-init.py" "npm-helper" "npm_common.py")
-BASH_SCRIPTS=("npm-backup" "npm-restore" "npm-diagnostics" "npm-support-bundle" "npm-preflight" "npm-postinit" "npm-update-container" "npm-stack-start" "northstar")
+BASH_SCRIPTS=("npm-backup" "npm-restore" "npm-diagnostics" "npm-support-bundle" "npm-preflight" "npm-postinit" "npm-update-container" "npm-stack-start" "npm-cert-check" "northstar")
 
 # Copy Python scripts
 for script in "${PYTHON_SCRIPTS[@]}"; do
@@ -122,6 +122,13 @@ chown root:root "/etc/npm-backup.conf"
 chmod 0644 "/etc/npm-backup.conf"
 echo "✓ Copied npm-backup.conf to /etc/"
 
+if [[ -f "$AMI_FILES/etc/npm-cert-check.conf" ]]; then
+    cp "$AMI_FILES/etc/npm-cert-check.conf" "/etc/npm-cert-check.conf"
+    chown root:root "/etc/npm-cert-check.conf"
+    chmod 0644 "/etc/npm-cert-check.conf"
+    echo "✓ Copied npm-cert-check.conf to /etc/"
+fi
+
 # Step 5: Install systemd units
 echo ""
 echo "[5/6] Installing systemd units..."
@@ -133,6 +140,8 @@ SYSTEMD_UNITS=(
     "npm-postinit.service"
     "npm-backup.service"
     "npm-backup.timer"
+    "npm-cert-check.service"
+    "npm-cert-check.timer"
 )
 
 for unit in "${SYSTEMD_UNITS[@]}"; do
@@ -199,6 +208,14 @@ else
     exit 1
 fi
 
+if systemctl enable npm-cert-check.timer --quiet; then
+    ENABLED_UNITS+=("npm-cert-check.timer")
+    echo "  ✓ Enabled: npm-cert-check.timer"
+else
+    echo "  ✗ Error: Failed to enable npm-cert-check.timer"
+    exit 1
+fi
+
 echo "✓ Systemd units enabled"
 
 # Summary
@@ -241,4 +258,3 @@ echo "  - Run 03-security-hardening.sh to configure security settings"
 echo ""
 
 exit 0
-

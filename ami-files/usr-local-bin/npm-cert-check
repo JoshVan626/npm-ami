@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# Check TLS certificate expiry for NPM-managed certificates.
+# Emits non-sensitive warnings to stdout/stderr (journal).
+
+set -euo pipefail
+
+CONFIG_FILE="/etc/npm-cert-check.conf"
+DEFAULT_THRESHOLD_DAYS=30
+
+CERT_DIRS=(
+  "/opt/npm/letsencrypt/live"
+  "/opt/npm/letsencrypt/archive"
+  "/opt/npm/data/letsencrypt"
+  "/etc/letsencrypt/live"
+  "/etc/letsencrypt/archive"
+)
+
+threshold_days="${DEFAULT_THRESHOLD_DAYS}"
+
+if [[ -f "$CONFIG_FILE" ]]; then
+  in_section=false
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    [[ -z "$line" || "$line" =~ ^# ]] && continue
+    if [[ "$line" == "[cert-check]" ]]; then
+      in_section=true
+      continue
+    fi
+    if [[ "$line" =~ ^\[.*\]$ ]]; then
+      in_section=false
+    fi
+    if [[ "$in_section" == true && "$line" =~ ^([^=]+)=(.*)$ ]]; then
+      key=$(echo "${BASH_REMATCH[1]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+      value=$(echo "${BASH_REMATCH[2]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+      if [[ "$key" == "threshold_days" ]]; then
+        threshold_days="$value"
+      fi
+    fi
+  done < "$CONFIG_FILE"
+fi
+
+if ! [[ "$threshold_days" =~ ^[0-9]+$ ]]; then
+  threshold_days="${DEFAULT_THRESHOLD_DAYS}"
+fi
+
+if ! command -v openssl >/dev/null 2>&1; then
+  echo "Error: openssl not found; cannot check certificates."
+  exit 1
+fi
+
+now_epoch=$(date +%s)
+
+cert_files=()
+for dir in "${CERT_DIRS[@]}"; do
+  if [[ -d "$dir" ]]; then
+    while IFS= read -r -d '' file; do
+      cert_files+=("$file")
+    done < <(find "$dir" -type f \( -name "fullchain.pem" -o -name "cert.pem" \) -print0 2>/dev/null)
+  fi
+done
+
+if [[ ${#cert_files[@]} -eq 0 ]]; then
+  echo "NPM cert check: no certificates found in known paths."
+  exit 0
+fi
+
+cloudwatch_enabled=false
+if command -v systemctl >/dev/null 2>&1; then
+  if systemctl is-active --quiet amazon-cloudwatch-agent.service 2>/dev/null; then
+    cloudwatch_enabled=true
+  fi
+fi
+
+warned=false
+next_expiry_epoch=""
+next_expiry_label=""
+
+for cert in "${cert_files[@]}"; do
+  if ! end_line=$(openssl x509 -enddate -noout -in "$cert" 2>/dev/null); then
+    echo "Warning: Unable to read certificate: $cert"
+    continue
+  fi
+  end_date=${end_line#notAfter=}
+  end_epoch=$(date -d "$end_date" +%s 2>/dev/null || true)
+  if [[ -z "$end_epoch" ]]; then
+    echo "Warning: Unable to parse expiry date for: $cert"
+    continue
+  fi
+  days_remaining=$(( (end_epoch - now_epoch) / 86400 ))
+
+  if [[ -z "$next_expiry_epoch" || "$end_epoch" -lt "$next_expiry_epoch" ]]; then
+    next_expiry_epoch="$end_epoch"
+    next_expiry_label="$end_date"
+  fi
+
+  if [[ "$days_remaining" -le "$threshold_days" ]]; then
+    warned=true
+    echo "WARNING: Certificate expiring soon: $cert (expires $end_date, days_remaining=$days_remaining)"
+    if [[ "$cloudwatch_enabled" == true ]]; then
+      echo "NORTHSTAR_CERT_EXPIRY_WARN cert=$(basename "$cert") days_remaining=$days_remaining"
+    fi
+  else
+    echo "OK: $cert (expires $end_date, days_remaining=$days_remaining)"
+  fi
+
+done
+
+if [[ "$warned" == false && -n "$next_expiry_label" ]]; then
+  echo "NPM cert check: next expiry $next_expiry_label"
+fi
+
+exit 0

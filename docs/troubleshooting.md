@@ -170,6 +170,20 @@ Remember: even if S3 upload fails, local backups are still created in
 
 ---
 
+## Backup verification or restore validation
+
+If you want confidence in the latest backup or need to confirm an archive
+before restore:
+
+```bash
+sudo npm-helper backup verify
+sudo npm-helper restore --dry-run /var/backups/npm-YYYYMMDDHHMMSS.tar.gz
+```
+
+These checks are non-destructive and provide a quick sanity check.
+
+---
+
 ## CloudWatch logs are missing
 
 1. Check the agent service:
