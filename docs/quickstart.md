@@ -64,6 +64,36 @@ Once the instance is running:
 
 ---
 
+## Day 0 checklist (60-second onboarding)
+
+Run these quick steps right after first login:
+
+1. Get the admin credentials:
+
+   ```bash
+   sudo npm-helper show-creds
+   ```
+
+2. Restrict admin access to your IP:
+
+   ```bash
+   sudo npm-helper admin-access enable --cidr <your-ip>/32
+   ```
+
+3. Confirm the stack is healthy:
+
+   ```bash
+   sudo npm-helper status
+   ```
+
+4. (Optional) Run a certificate check once you’ve issued certs:
+
+   ```bash
+   sudo npm-helper cert-check
+   ```
+
+---
+
 ## 3. Log into Nginx Proxy Manager
 
 1. Open your browser to:
@@ -154,6 +184,7 @@ Run these two commands on a fresh instance:
 
 ```bash
 sudo npm-helper status
+sudo npm-helper cert-check
 sudo journalctl -u npm-init.service -b --no-pager | tail -n 50
 ```
 

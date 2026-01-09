@@ -28,6 +28,7 @@ This repository is **not** intended to be a general-purpose installation guide. 
 - **Operational helper tools**:
   - `northstar` (recommended wrapper)
   - `npm-helper`
+  - `npm-cert-check`
   - `npm-backup`
   - `npm-restore`
   - `npm-diagnostics`
@@ -63,6 +64,7 @@ Run these two commands on a fresh instance:
 
 ```bash
 sudo npm-helper status
+sudo npm-helper cert-check
 sudo journalctl -u npm-init.service -b --no-pager | tail -n 50
 ```
 

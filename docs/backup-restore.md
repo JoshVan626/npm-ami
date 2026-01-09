@@ -132,6 +132,32 @@ If CloudWatch Agent is configured, these lines flow to CloudWatch Logs via syslo
 
 ---
 
+## Verify backups
+
+You can run a quick integrity check against the most recent backup archive:
+
+```bash
+sudo npm-helper backup verify
+```
+
+This checks that a recent backup exists, validates archive readability, and
+confirms expected components (`/opt/npm/data`, `/opt/npm/letsencrypt`) are present.
+
+---
+
+## Restore dry-run (validation only)
+
+To validate a backup archive without modifying the instance:
+
+```bash
+sudo npm-helper restore --dry-run /var/backups/npm-YYYYMMDDHHMMSS.tar.gz
+```
+
+This prints what would be restored and fails safely if the archive does not
+contain expected NPM paths.
+
+---
+
 ## Optional S3 Backups (IAM Required)
 
 S3 uploads are **optional**. Local backups work without IAM permissions. If S3 permissions are missing (or no instance role is attached), the backup will still complete locally and the S3 upload step may log a warning.

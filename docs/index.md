@@ -7,8 +7,9 @@ production-ready reverse proxy for AWS and a hardened, batteries-included EC2 im
 - Opinionated security defaults (SSH hardening, firewall, fail2ban, sysctl)
 - First-boot automatic admin credential generation (no default passwords, no secrets in MOTD)
 - Built-in backup & restore (local + optional S3)
+- Certificate expiry monitoring with daily checks
 - CloudWatch logging for system/auth activity
-- Simple CLI helpers for status, credential retrieval, and backups
+- Simple CLI helpers for status, credential retrieval, backups, and safe upgrades
 
 It’s designed for:
 
@@ -36,6 +37,7 @@ It’s designed for:
 - **Ops tools:**
   - `northstar` (recommended wrapper CLI)
   - `npm-helper` (show/rotate credentials, check status, admin access)
+  - `npm-helper cert-check`, `npm-helper upgrade`, `npm-helper backup verify`
   - `npm-backup` and `npm-restore` (local + optional S3)
   - Daily backup timer via systemd
 - **Observability:**
