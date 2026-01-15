@@ -33,7 +33,9 @@ UFW is installed and configured to:
   - `80/tcp` – HTTP
   - `443/tcp` – HTTPS
 
-Port `81/tcp` (NPM Admin UI) is **restricted by default**. To allow access from a trusted IP:
+In your **EC2 security group**, restrict `22/tcp` to your admin IP(s) or trusted CIDR ranges. Avoid `0.0.0.0/0` for SSH.
+
+Port `81/tcp` (NPM Admin UI) is **restricted by default**. Do **not** expose it publicly; allowlist a single trusted IP or use an SSH tunnel. To allow access from a trusted IP:
 
 ```bash
 sudo npm-helper admin-access enable --cidr <your-ip>/32

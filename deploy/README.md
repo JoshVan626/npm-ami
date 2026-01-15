@@ -1,10 +1,10 @@
 ## Deploy templates
 
-This folder contains copy-paste Infrastructure-as-Code templates to launch the **Nginx Proxy Manager – Hardened Edition (Ubuntu 22.04)** AMI.
+This folder contains copy-paste Infrastructure-as-Code templates to launch the **Nginx Proxy Manager (NPM) for AWS — Production-Ready, Secure Admin Plane, Backups & Monitoring** AMI.
 
 These templates create:
 - An EC2 instance (`t3.small` by default)
-- A security group allowing inbound `22`, `80`, `81`, `443` from `0.0.0.0/0`
+- A security group (review and tighten before use)
 - An instance role + instance profile with permissions for optional CloudWatch Logs/Metrics and optional S3 backups
 
 ### Terraform
@@ -23,6 +23,7 @@ terraform apply \
 Notes:
 - The AMI is discovered via an `aws_ami` data source using the name pattern `npm-hardened-edition-ubuntu22-*`.
 - If your Marketplace AMI is owned by a different account than the default (`aws-marketplace`), set `-var 'ami_owners=["<owner-id>"]'`.
+- **Security group guidance:** restrict `22/tcp` to your admin IPs, keep `80/443` public, and avoid public exposure of `81/tcp` (use allowlist or SSH tunnel).
 
 ### CloudFormation
 

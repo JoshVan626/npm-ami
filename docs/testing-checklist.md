@@ -2,7 +2,7 @@
 
 This checklist ensures the AMI is fully functional and ready for use before publishing to AWS Marketplace.
 
-**Product:** Nginx Proxy Manager – Hardened Edition (Ubuntu 22.04) by Northstar Cloud Solutions
+**Product:** Nginx Proxy Manager (NPM) for AWS — Production-Ready, Secure Admin Plane, Backups & Monitoring by Northstar Cloud Solutions
 
 ---
 

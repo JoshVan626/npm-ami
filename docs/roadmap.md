@@ -1,6 +1,6 @@
 # Roadmap
 
-This section describes planned future enhancements for the Nginx Proxy Manager – Hardened Edition (Ubuntu 22.04) by Northstar Cloud Solutions. These are **not required** for day-one
+This section describes planned future enhancements for the Nginx Proxy Manager (NPM) for AWS by Northstar Cloud Solutions. These are **not required** for day-one
 production use but are intended to make the product even more powerful over time.
 
 You can reference this roadmap in the AWS Marketplace listing to show

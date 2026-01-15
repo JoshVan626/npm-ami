@@ -1,6 +1,6 @@
-# Nginx Proxy Manager (NPM) – Hardened Edition (Ubuntu 22.04)
+# Nginx Proxy Manager (NPM) for AWS — Production-Ready, Secure Admin Plane, Backups & Monitoring
 
-**By Northstar Cloud Solutions LLC**
+**by Northstar Cloud Solutions LLC**
 
 A hardened, ready-to-run AWS AMI that provides a **production-ready reverse proxy for AWS** with Nginx Proxy Manager (NPM), Docker, secure credential generation, built-in backups, and optional CloudWatch integration.
 
@@ -8,9 +8,11 @@ A hardened, ready-to-run AWS AMI that provides a **production-ready reverse prox
 
 ## Overview
 
-This repository contains documentation and supporting artifacts for the **Nginx Proxy Manager – Hardened Edition (Ubuntu 22.04)** Amazon Machine Image (AMI), published by **Northstar Cloud Solutions LLC** on AWS Marketplace.
+This repository contains documentation and supporting artifacts for the **Nginx Proxy Manager (NPM) for AWS — Production-Ready, Secure Admin Plane, Backups & Monitoring** Amazon Machine Image (AMI), published by **Northstar Cloud Solutions LLC** on AWS Marketplace.
 
 The AMI is designed to provide a secure, reproducible, and low-maintenance **single-node** Nginx Proxy Manager environment with strong defaults and minimal operational overhead.
+
+**Naming & platform layer:** The application is Nginx Proxy Manager (NPM). References to `northstar` in commands, paths, and systemd units refer to Northstar Cloud Solutions’ lifecycle and hardening layer that wraps the upstream NPM container.
 
 This repository is **not** intended to be a general-purpose installation guide. Customers are expected to launch the AMI directly from AWS Marketplace.
 
@@ -55,6 +57,18 @@ Use `northstar` (recommended) or `npm-helper` directly for lifecycle and securit
 ## Expected first boot timeline (2–5 minutes)
 
 On first boot, the instance initializes NPM, generates admin credentials, and starts the stack. This usually completes in **2–5 minutes** depending on instance size and image pull speed.
+
+## Day 0 checklist (tight, repeatable flow)
+
+1. Wait **2–5 minutes** for first boot initialization.
+2. Connect via SSH or EC2 Instance Connect (browser terminal).
+3. Run: `sudo npm-helper status`
+4. Run: `sudo npm-helper show-creds --yes`
+5. Access the Admin UI safely (allowlist your IP or use an SSH tunnel; **do not** expose port 81 publicly).
+6. Optional validation:
+   - `sudo npm-helper backup verify`
+   - `sudo npm-helper cert-check`
+   - `sudo npm-helper upgrade --dry-run`
 
 ---
 
@@ -179,7 +193,7 @@ For common recovery commands and first-boot troubleshooting, see [`docs/troubles
 ## Marketplace listing draft (internal)
 
 Suggested title:
-- **Nginx Proxy Manager – Hardened Edition AMI (Ubuntu 22.04)**
+- **Nginx Proxy Manager (NPM) for AWS — Production-Ready, Secure Admin Plane, Backups & Monitoring**
 
 Feature bullets (draft):
 - Hardened Ubuntu 22.04 baseline with conservative defaults
@@ -214,7 +228,7 @@ See the [`LICENSE`](LICENSE) file for full terms.
 
 ## Product Information
 
-- **Product Name:** Nginx Proxy Manager – Hardened Edition (Ubuntu 22.04)
+- **Product Name:** Nginx Proxy Manager (NPM) for AWS — Production-Ready, Secure Admin Plane, Backups & Monitoring
 - **Vendor:** Northstar Cloud Solutions LLC
 - **Base OS:** Ubuntu Server 22.04 LTS
 - **NPM Version:** Pinned Docker image (see documentation)
