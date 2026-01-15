@@ -4,7 +4,7 @@ This folder contains copy-paste Infrastructure-as-Code templates to launch the *
 
 These templates create:
 - An EC2 instance (`t3.small` by default)
-- A security group with public 80/443 and restricted admin ports (22/81)
+- A security group with **public 80/443** and **restricted admin ports (22/81)**. Review and tighten for your environment; **do not expose 81 publicly**.
 - An instance role + instance profile with permissions for optional CloudWatch Logs/Metrics and optional S3 backups
 
 ### Terraform

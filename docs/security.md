@@ -33,7 +33,8 @@ UFW is installed and configured to:
   - `80/tcp` – HTTP
   - `443/tcp` – HTTPS
 
-In your **EC2 security group**, restrict `22/tcp` and `81/tcp` to your admin IP(s) or trusted CIDR ranges. Avoid `0.0.0.0/0` for admin ports.
+In your **EC2 security group**, restrict `22/tcp` (SSH) and `81/tcp` (NPM Admin UI) to your admin IP(s) or trusted CIDR ranges. Avoid `0.0.0.0/0` for admin ports.
+
 
 Port `81/tcp` (NPM Admin UI) is **restricted by default**. Do **not** expose it publicly; allowlist a single trusted IP or use an SSH tunnel. To allow access from a trusted IP:
 
