@@ -21,9 +21,9 @@ This is a server-only AMI (no desktop GUI). Use SSH or EC2 Instance Connect for 
    - For light production: `t3.medium` or higher (depending on traffic)
 5. Select / create a key pair.
 6. Configure **network and security group** to allow:
-   - `22/tcp` – SSH (restricted to your admin IP)
-   - `80/tcp` – HTTP
-   - `443/tcp` – HTTPS
+   - `22/tcp` – SSH (restricted to your admin IP; use AdminCidr/admin_cidrs in IaC)
+   - `80/tcp` – HTTP (public)
+   - `443/tcp` – HTTPS (public)
    - `81/tcp` – NPM admin UI (**do not** make public; allowlist your IP or use an SSH tunnel)
 7. Launch the instance.
 
@@ -100,6 +100,14 @@ Once the instance is running:
 ```bash
 sudo npm-helper admin-access enable --cidr <your-ip>/32
 ```
+
+SSH tunnel example (recommended when port 81 is not open in the security group):
+
+```bash
+ssh -i /path/to/key.pem -L 8181:localhost:81 ubuntu@<instance-public-ip>
+```
+
+Then open `http://localhost:8181` in your browser.
 
 ---
 

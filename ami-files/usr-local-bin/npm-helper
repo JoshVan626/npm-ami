@@ -661,7 +661,7 @@ def cmd_diagnostics(json_mode: bool = False):
         errors.append(f"docker_compose_ps_error:{type(e).__name__}")
 
     result = {
-        "product": "Nginx Proxy Manager – Hardened Edition AMI",
+        "product": "Nginx Proxy Manager (NPM) for AWS",
         "vendor": "Northstar Cloud Solutions LLC",
         "lifecycle": {
             "preflight": preflight,

@@ -1,4 +1,4 @@
-# Fail2ban jail configuration for Nginx Proxy Manager – Hardened Edition (Ubuntu 22.04) by Northstar Cloud Solutions
+# Fail2ban jail configuration for Nginx Proxy Manager (NPM) for AWS — by Northstar Cloud Solutions
 # This file overrides settings in /etc/fail2ban/jail.conf
 
 [DEFAULT]
@@ -22,4 +22,3 @@ findtime = 600
 # Duration of ban (in seconds)
 # 3600 seconds = 1 hour
 bantime = 3600
-

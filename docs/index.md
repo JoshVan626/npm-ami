@@ -46,7 +46,38 @@ It’s designed for:
   - Daily backup timer via systemd
 - **Observability:**
   - Amazon CloudWatch Agent preconfigured to ship system and auth logs
-  - Per-instance log streams for easier debugging
+- Per-instance log streams for easier debugging
+
+---
+
+## Architecture (data flow)
+
+```mermaid
+flowchart TB
+  Internet[(Public Internet)]
+  subgraph AWS["AWS VPC"]
+    EC2[EC2 Instance\nNginx Proxy Manager (NPM)]
+    subgraph Docker["Docker Compose"]
+      NPM[NPM Container]
+    end
+    LocalBackups[(Local Backups\n/var/backups)]
+  end
+  CloudWatch[(CloudWatch Logs/Metrics\nOptional IAM)]
+  S3[(S3 Backups\nOptional IAM)]
+  AdminCIDR[Admin IP/CIDR\n(SSH + Admin UI)]
+  Tunnel[SSH Tunnel\nlocalhost:8181 → :81]
+
+  Internet -->|80/443| EC2
+  AdminCIDR -->|22/81 (restricted)| EC2
+  Tunnel -->|81 via SSH| EC2
+  EC2 --> Docker
+  Docker --> NPM
+  EC2 --> LocalBackups
+  EC2 -.->|optional| S3
+  EC2 -.->|optional| CloudWatch
+```
+
+Diagram source: [`docs/assets/architecture.mmd`](./assets/architecture.mmd).
 
 ---
 
@@ -62,3 +93,4 @@ It’s designed for:
 - See **[Upgrades](./upgrades.md)** for upgrading the AMI and NPM versions.
 - See **[Examples: Multi-App Setup](./examples-multi-app.md)** for a common use case.
 - Look at **[Roadmap](./roadmap.md)** for planned future enhancements.
+- Review **[Releases](../RELEASES.md)** for a repository release log scaffold.

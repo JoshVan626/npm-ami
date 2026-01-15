@@ -5,7 +5,7 @@
 set -euo pipefail
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "Nginx Proxy Manager – Hardened Edition (Ubuntu 22.04) by Northstar Cloud Solutions - Diagnostics"
+echo "Nginx Proxy Manager (NPM) for AWS — by Northstar Cloud Solutions - Diagnostics"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
@@ -83,5 +83,4 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "Diagnostics complete."
 echo "You can include this output in support requests (redact sensitive info first)."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
 

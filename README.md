@@ -34,7 +34,38 @@ This repository is **not** intended to be a general-purpose installation guide. 
   - `npm-backup`
   - `npm-restore`
   - `npm-diagnostics`
-  - `npm-support-bundle`
+- `npm-support-bundle`
+
+---
+
+## Architecture (data flow)
+
+```mermaid
+flowchart TB
+  Internet[(Public Internet)]
+  subgraph AWS["AWS VPC"]
+    EC2[EC2 Instance\nNginx Proxy Manager (NPM)]
+    subgraph Docker["Docker Compose"]
+      NPM[NPM Container]
+    end
+    LocalBackups[(Local Backups\n/var/backups)]
+  end
+  CloudWatch[(CloudWatch Logs/Metrics\nOptional IAM)]
+  S3[(S3 Backups\nOptional IAM)]
+  AdminCIDR[Admin IP/CIDR\n(SSH + Admin UI)]
+  Tunnel[SSH Tunnel\nlocalhost:8181 → :81]
+
+  Internet -->|80/443| EC2
+  AdminCIDR -->|22/81 (restricted)| EC2
+  Tunnel -->|81 via SSH| EC2
+  EC2 --> Docker
+  Docker --> NPM
+  EC2 --> LocalBackups
+  EC2 -.->|optional| S3
+  EC2 -.->|optional| CloudWatch
+```
+
+Diagram source: [`docs/assets/architecture.mmd`](docs/assets/architecture.mmd).
 
 ---
 
@@ -127,6 +158,8 @@ Northstar Cloud Solutions LLC is responsible for:
 - Release notes document version changes and known limitations.
  
 **Release notes and AMI IDs:** Release notes and AMI IDs are managed outside this repository (AWS Marketplace metadata and internal release notes).
+
+See [`RELEASES.md`](RELEASES.md) for a repository release log scaffold and update guidance.
 
 ---
 

@@ -33,7 +33,8 @@ UFW is installed and configured to:
   - `80/tcp` – HTTP
   - `443/tcp` – HTTPS
 
-In your **EC2 security group**, restrict `22/tcp` to your admin IP(s) or trusted CIDR ranges. Avoid `0.0.0.0/0` for SSH.
+In your **EC2 security group**, restrict `22/tcp` (SSH) and `81/tcp` (NPM Admin UI) to your admin IP(s) or trusted CIDR ranges. Avoid `0.0.0.0/0` for admin ports.
+
 
 Port `81/tcp` (NPM Admin UI) is **restricted by default**. Do **not** expose it publicly; allowlist a single trusted IP or use an SSH tunnel. To allow access from a trusted IP:
 
@@ -48,6 +49,14 @@ sudo npm-helper admin-access disable
 ```
 
 Do **not** expose port 81 to the public internet; use an SSH tunnel or a temporary single-IP allowlist.
+
+SSH tunnel example:
+
+```bash
+ssh -i /path/to/key.pem -L 8181:localhost:81 ubuntu@<instance-public-ip>
+```
+
+Then open `http://localhost:8181` in your browser.
 
 Check rules:
 
