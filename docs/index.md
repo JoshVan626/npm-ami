@@ -1,6 +1,8 @@
-# Nginx Proxy Manager (NPM) – Hardened Edition (Ubuntu 22.04) by Northstar Cloud Solutions
+# Nginx Proxy Manager (NPM) for AWS — Production-Ready, Secure Admin Plane, Backups & Monitoring
 
-The **Nginx Proxy Manager (NPM) – Hardened Edition (Ubuntu 22.04) by Northstar Cloud Solutions** is a
+**by Northstar Cloud Solutions**
+
+The **Nginx Proxy Manager (NPM) for AWS — Production-Ready, Secure Admin Plane, Backups & Monitoring** is a
 production-ready reverse proxy for AWS and a hardened, batteries-included EC2 image that gives you:
 
 - A securely configured Nginx Proxy Manager instance (Docker-based, pinned version)
@@ -10,6 +12,8 @@ production-ready reverse proxy for AWS and a hardened, batteries-included EC2 im
 - Certificate expiry monitoring with daily checks
 - CloudWatch logging for system/auth activity
 - Simple CLI helpers for status, credential retrieval, backups, and safe upgrades
+
+**Naming & platform layer:** The application is Nginx Proxy Manager (NPM). References to `northstar` in commands, paths, or systemd units refer to Northstar Cloud Solutions’ lifecycle and hardening layer around the upstream NPM container.
 
 It’s designed for:
 
