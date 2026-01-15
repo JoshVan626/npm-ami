@@ -21,11 +21,15 @@ This is a server-only AMI (no desktop GUI). Use SSH or EC2 Instance Connect for 
    - For light production: `t3.medium` or higher (depending on traffic)
 5. Select / create a key pair.
 6. Configure **network and security group** to allow:
-   - `22/tcp` – SSH (restricted to your admin IP; use AdminCidr/admin_cidrs in IaC)
+   - `22/tcp` – SSH (restricted to your admin IP; use AdminCidr/admin_cidrs in IaC). AdminCidr/admin_cidrs defaults to `127.0.0.1/32` to prevent accidental public exposure; set it to your public IP/32 before launch.
    - `80/tcp` – HTTP (public)
    - `443/tcp` – HTTPS (public)
    - `81/tcp` – NPM admin UI (**do not** make public; allowlist your IP or use an SSH tunnel)
 7. Launch the instance.
+
+**EC2 Instance Connect note (SSH):** Instance Connect still requires inbound SSH (22) to be allowed. Choose one option:
+- **Recommended:** allow 22/tcp from your public IP/32 (standard SSH).
+- **If using EC2 Instance Connect:** allow 22/tcp from the region’s EC2 Instance Connect source (AWS-managed prefix list / documented prerequisites).
 
 ---
 
