@@ -43,11 +43,6 @@ variable "admin_cidrs" {
   description = "CIDRs allowed to reach admin ports (22/81). Set to your IP/32; do not use 0.0.0.0/0 for port 81."
   type        = list(string)
   default     = ["127.0.0.1/32"]
-
-  validation {
-    condition     = var.allow_admin_from_anywhere || !contains(var.admin_cidrs, "0.0.0.0/0")
-    error_message = "admin_cidrs must not include 0.0.0.0/0 unless allow_admin_from_anywhere is true."
-  }
 }
 
 variable "allow_admin_from_anywhere" {
@@ -199,6 +194,13 @@ resource "aws_security_group" "npm" {
   name        = "npm-hardened-edition-sg"
   description = "Allow 80/443 public; restrict 22/81 to admin CIDRs"
   vpc_id      = var.vpc_id
+
+  lifecycle {
+    precondition {
+      condition     = var.allow_admin_from_anywhere || !contains(var.admin_cidrs, "0.0.0.0/0")
+      error_message = "admin_cidrs must not include 0.0.0.0/0 unless allow_admin_from_anywhere is true."
+    }
+  }
 
   ingress {
     description = "SSH"
