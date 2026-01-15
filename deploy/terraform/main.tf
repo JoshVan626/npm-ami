@@ -40,13 +40,13 @@ variable "public_cidrs" {
 }
 
 variable "admin_cidrs" {
-  description = "CIDRs allowed to reach admin ports (22/81). Set to your IP/32; do not use 0.0.0.0/0 for port 81."
+  description = "CIDRs allowed to reach admin ports (22/81). Defaults to 127.0.0.1/32 for safety; set to your public IP/32. Do not use 0.0.0.0/0 or ::/0 for port 81."
   type        = list(string)
   default     = ["127.0.0.1/32"]
 }
 
 variable "allow_admin_from_anywhere" {
-  description = "If true, allow admin_cidrs to include 0.0.0.0/0 (strongly discouraged)."
+  description = "If true, allow admin_cidrs to include 0.0.0.0/0 or ::/0 (strongly discouraged)."
   type        = bool
   default     = false
 }
@@ -192,13 +192,13 @@ resource "aws_iam_instance_profile" "instance" {
 
 resource "aws_security_group" "npm" {
   name        = "npm-hardened-edition-sg"
-  description = "Allow 80/443 public; restrict 22/81 to admin CIDRs"
+  description = "Nginx Proxy Manager (NPM) for AWS — allow 80/443 public; restrict 22/81 to admin CIDRs"
   vpc_id      = var.vpc_id
 
   lifecycle {
     precondition {
-      condition     = var.allow_admin_from_anywhere || !contains(var.admin_cidrs, "0.0.0.0/0")
-      error_message = "admin_cidrs must not include 0.0.0.0/0 unless allow_admin_from_anywhere is true."
+      condition     = var.allow_admin_from_anywhere || (!contains(var.admin_cidrs, "0.0.0.0/0") && !contains(var.admin_cidrs, "::/0"))
+      error_message = "admin_cidrs must not include 0.0.0.0/0 or ::/0 unless allow_admin_from_anywhere is true."
     }
   }
 
@@ -262,10 +262,10 @@ resource "aws_instance" "npm" {
 
 output "instance_public_ip" {
   value       = aws_instance.npm.public_ip
-  description = "Public IP of the instance."
+  description = "Public IP of the Nginx Proxy Manager (NPM) for AWS instance."
 }
 
 output "nginx_proxy_manager_url" {
   value       = "http://${aws_instance.npm.public_ip}:81"
-  description = "Nginx Proxy Manager UI URL."
+  description = "Nginx Proxy Manager (NPM) for AWS admin UI URL."
 }
