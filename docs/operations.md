@@ -1,4 +1,6 @@
-# Operations
+# Nginx Proxy Manager (NPM) for AWS — Production-Ready, Secure Admin Plane, Backups & Monitoring
+
+**by Northstar Cloud Solutions**
 
 This AMI includes a few opinionated tools and services to make NPM easier to
 run in production.

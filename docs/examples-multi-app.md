@@ -9,7 +9,7 @@ on EC2.
 
 You have:
 
-- One NPM Premium AMI instance
+- One Nginx Proxy Manager (NPM) for AWS AMI instance
 - Two backend apps:
 
   - `app1` on another EC2 instance at `10.0.1.10:3000`

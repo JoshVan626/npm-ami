@@ -33,10 +33,27 @@ variable "key_name" {
   type        = string
 }
 
-variable "allowed_cidr" {
-  description = "CIDR allowed to reach the instance ports (22/80/81/443)."
-  type        = string
-  default     = "0.0.0.0/0"
+variable "public_cidrs" {
+  description = "CIDRs allowed to reach public ports (80/443)."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
+variable "admin_cidrs" {
+  description = "CIDRs allowed to reach admin ports (22/81). Set to your IP/32; do not use 0.0.0.0/0 for port 81."
+  type        = list(string)
+  default     = ["127.0.0.1/32"]
+
+  validation {
+    condition     = var.allow_admin_from_anywhere || !contains(var.admin_cidrs, "0.0.0.0/0")
+    error_message = "admin_cidrs must not include 0.0.0.0/0 unless allow_admin_from_anywhere is true."
+  }
+}
+
+variable "allow_admin_from_anywhere" {
+  description = "If true, allow admin_cidrs to include 0.0.0.0/0 (strongly discouraged)."
+  type        = bool
+  default     = false
 }
 
 variable "instance_type" {
@@ -180,7 +197,7 @@ resource "aws_iam_instance_profile" "instance" {
 
 resource "aws_security_group" "npm" {
   name        = "npm-hardened-edition-sg"
-  description = "Allow 22/80/81/443 for NPM Hardened Edition"
+  description = "Allow 80/443 public; restrict 22/81 to admin CIDRs"
   vpc_id      = var.vpc_id
 
   ingress {
@@ -188,7 +205,7 @@ resource "aws_security_group" "npm" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = [var.allowed_cidr]
+    cidr_blocks = var.admin_cidrs
   }
 
   ingress {
@@ -196,7 +213,7 @@ resource "aws_security_group" "npm" {
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = [var.allowed_cidr]
+    cidr_blocks = var.public_cidrs
   }
 
   ingress {
@@ -204,7 +221,7 @@ resource "aws_security_group" "npm" {
     from_port   = 81
     to_port     = 81
     protocol    = "tcp"
-    cidr_blocks = [var.allowed_cidr]
+    cidr_blocks = var.admin_cidrs
   }
 
   ingress {
@@ -212,7 +229,7 @@ resource "aws_security_group" "npm" {
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
-    cidr_blocks = [var.allowed_cidr]
+    cidr_blocks = var.public_cidrs
   }
 
   egress {

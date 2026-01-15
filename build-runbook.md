@@ -1,8 +1,8 @@
 <!-- docs/build-runbook.md -->
 
-# Build Runbook – Nginx Proxy Manager Premium AMI
+# Build Runbook – Nginx Proxy Manager (NPM) for AWS AMI
 
-> This document describes how to go from **nothing** to a prepared set of files and scripts that can be applied to an Ubuntu 22.04 EC2 instance to create a “golden image” for the Nginx Proxy Manager Premium AMI.
+> This document describes how to go from **nothing** to a prepared set of files and scripts that can be applied to an Ubuntu 22.04 EC2 instance to create a “golden image” for the Nginx Proxy Manager (NPM) for AWS AMI.
 
 The actual AWS Marketplace registration and AMI publishing come later. This runbook focuses on **what goes inside the instance**.
 
@@ -35,10 +35,10 @@ By following this runbook you will:
 
 ## 3. Repository Layout
 
-Create a repo named something like `npm-premium-ami` with this structure:
+Create a repo named something like `npm-ami` with this structure:
 
 ```text
-npm-premium-ami/
+npm-ami/
 ├─ docs/
 │  ├─ product-spec.md
 │  ├─ build-runbook.md
@@ -184,7 +184,7 @@ The MOTD script that displays login credentials is **not** shipped as a static f
    aws ec2 create-image \
      --instance-id <instance-id> \
      --name "npm-hardened-edition-ubuntu22-<version>" \
-     --description "Nginx Proxy Manager – Hardened Edition (Ubuntu 22.04) by Northstar Cloud Solutions"
+     --description "Nginx Proxy Manager (NPM) for AWS — Production-Ready, Secure Admin Plane, Backups & Monitoring by Northstar Cloud Solutions"
    ```
 
 7. **Wait for AMI creation:**

@@ -1,15 +1,15 @@
 <!-- docs/product-spec.md -->
 
-# Nginx Proxy Manager Premium AMI – Product Specification (v1)
+# Nginx Proxy Manager (NPM) for AWS — Product Specification (v1)
 
-> **Product:** Nginx Proxy Manager – Hardened Edition (Ubuntu 22.04) by Northstar Cloud Solutions
+> **Product:** Nginx Proxy Manager (NPM) for AWS — Production-Ready, Secure Admin Plane, Backups & Monitoring by Northstar Cloud Solutions
 
 ---
 
 ## 1. Overview
 
 **Product name (working):**  
-**Nginx Proxy Manager Premium AMI – Hardened Ubuntu 22.04**
+**Nginx Proxy Manager (NPM) for AWS — Production-Ready, Secure Admin Plane, Backups & Monitoring**
 
 **Owner / Brand:**  
 Northstar Cloud Solutions (registered as an AWS Marketplace seller)
@@ -104,6 +104,7 @@ The result is a **self-contained reverse proxy appliance** that can be launched 
     - Admin URL: `http://<instance-public-ip>:81`  
     - Username: `admin@example.com`  
     - A pointer to the root-only credentials file (`sudo npm-helper show-creds`)  
+    - A reminder that port 81 is restricted by default (allowlist or SSH tunnel)  
   - Writes credentials to a root-only file on disk.  
   - Creates a marker file (e.g., `/var/lib/npm-init-complete`) so it never runs again on the same instance.
 
@@ -218,7 +219,7 @@ When a new EC2 instance is launched from this AMI:
 
 - `docker.service` and `npm.service` are expected to be **active**.  
 - `docker compose ps` in `/opt/npm` shows the NPM container running.  
-- The NPM UI is reachable at `http://<instance-ip>:81`.  
+- The NPM UI is reachable at `http://<instance-ip>:81` **after** you allowlist your IP or use an SSH tunnel (port 81 is restricted by default).  
 - All configuration changes (hosts, SSL certs, etc.) are done via the NPM UI.  
 - OS-level configuration changes are performed using standard Ubuntu tooling (`apt`, `ufw`, etc.).  
 - Security patches are applied automatically via `unattended-upgrades` between AMI releases.
@@ -398,7 +399,7 @@ CPU and memory usage are primarily driven by:
   - A small sysctl configuration file applied to improve network and kernel security with conservative, widely used settings (no aggressive tuning that could break workloads).
 
 - **Clear identification:**
-  - SSH login banner and documentation clearly identify the instance as the Nginx Proxy Manager – Hardened Edition (Ubuntu 22.04) by Northstar Cloud Solutions and link to support/doc resources.
+  - SSH login banner and documentation clearly identify the instance as the Nginx Proxy Manager (NPM) for AWS by Northstar Cloud Solutions and link to support/doc resources.
 
 ---
 

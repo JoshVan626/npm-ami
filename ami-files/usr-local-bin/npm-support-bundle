@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # NPM Support Bundle Script
-# Collects diagnostics for Nginx Proxy Manager – Hardened Edition (Ubuntu 22.04) by Northstar Cloud Solutions into a single tar.gz file.
+# Collects diagnostics for Nginx Proxy Manager (NPM) for AWS — by Northstar Cloud Solutions into a single tar.gz file.
 
 set -euo pipefail
 
@@ -12,7 +12,7 @@ BUNDLE_ARCHIVE="${OUTPUT_BASE}/npm-support-${TIMESTAMP}.tar.gz"
 mkdir -p "$BUNDLE_DIR"
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "Nginx Proxy Manager – Hardened Edition (Ubuntu 22.04) by Northstar Cloud Solutions - Support Bundle"
+echo "Nginx Proxy Manager (NPM) for AWS — by Northstar Cloud Solutions - Support Bundle"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo "Creating support bundle directory: $BUNDLE_DIR"

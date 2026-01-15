@@ -1,6 +1,6 @@
-# Nginx Proxy Manager (NPM) – Hardened Edition (Ubuntu 22.04)
+# Nginx Proxy Manager (NPM) for AWS — Production-Ready, Secure Admin Plane, Backups & Monitoring
 
-**By Northstar Cloud Solutions LLC**
+**by Northstar Cloud Solutions LLC**
 
 A hardened, ready-to-run AWS AMI that provides a **production-ready reverse proxy for AWS** with Nginx Proxy Manager (NPM), Docker, secure credential generation, built-in backups, and optional CloudWatch integration.
 
@@ -8,9 +8,11 @@ A hardened, ready-to-run AWS AMI that provides a **production-ready reverse prox
 
 ## Overview
 
-This repository contains documentation and supporting artifacts for the **Nginx Proxy Manager – Hardened Edition (Ubuntu 22.04)** Amazon Machine Image (AMI), published by **Northstar Cloud Solutions LLC** on AWS Marketplace.
+This repository contains documentation and supporting artifacts for the **Nginx Proxy Manager (NPM) for AWS — Production-Ready, Secure Admin Plane, Backups & Monitoring** Amazon Machine Image (AMI), published by **Northstar Cloud Solutions LLC** on AWS Marketplace.
 
 The AMI is designed to provide a secure, reproducible, and low-maintenance **single-node** Nginx Proxy Manager environment with strong defaults and minimal operational overhead.
+
+**Naming & platform layer:** The application is Nginx Proxy Manager (NPM). References to `northstar` in commands, paths, and systemd units refer to Northstar Cloud Solutions’ lifecycle and hardening layer that wraps the upstream NPM container.
 
 This repository is **not** intended to be a general-purpose installation guide. Customers are expected to launch the AMI directly from AWS Marketplace.
 
@@ -32,7 +34,38 @@ This repository is **not** intended to be a general-purpose installation guide. 
   - `npm-backup`
   - `npm-restore`
   - `npm-diagnostics`
-  - `npm-support-bundle`
+- `npm-support-bundle`
+
+---
+
+## Architecture (data flow)
+
+```mermaid
+flowchart TB
+  Internet[(Public Internet)]
+  subgraph AWS["AWS VPC"]
+    EC2[EC2 Instance\nNginx Proxy Manager (NPM)]
+    subgraph Docker["Docker Compose"]
+      NPM[NPM Container]
+    end
+    LocalBackups[(Local Backups\n/var/backups)]
+  end
+  CloudWatch[(CloudWatch Logs/Metrics\nOptional IAM)]
+  S3[(S3 Backups\nOptional IAM)]
+  AdminCIDR[Admin IP/CIDR\n(SSH + Admin UI)]
+  Tunnel[SSH Tunnel\nlocalhost:8181 → :81]
+
+  Internet -->|80/443| EC2
+  AdminCIDR -->|22/81 (restricted)| EC2
+  Tunnel -->|81 via SSH| EC2
+  EC2 --> Docker
+  Docker --> NPM
+  EC2 --> LocalBackups
+  EC2 -.->|optional| S3
+  EC2 -.->|optional| CloudWatch
+```
+
+Diagram source: [`docs/assets/architecture.mmd`](docs/assets/architecture.mmd).
 
 ---
 
@@ -55,6 +88,18 @@ Use `northstar` (recommended) or `npm-helper` directly for lifecycle and securit
 ## Expected first boot timeline (2–5 minutes)
 
 On first boot, the instance initializes NPM, generates admin credentials, and starts the stack. This usually completes in **2–5 minutes** depending on instance size and image pull speed.
+
+## Day 0 checklist (tight, repeatable flow)
+
+1. Wait **2–5 minutes** for first boot initialization.
+2. Connect via SSH or EC2 Instance Connect (browser terminal).
+3. Run: `sudo npm-helper status`
+4. Run: `sudo npm-helper show-creds --yes`
+5. Access the Admin UI safely (allowlist your IP or use an SSH tunnel; **do not** expose port 81 publicly).
+6. Optional validation:
+   - `sudo npm-helper backup verify`
+   - `sudo npm-helper cert-check`
+   - `sudo npm-helper upgrade --dry-run`
 
 ---
 
@@ -113,6 +158,8 @@ Northstar Cloud Solutions LLC is responsible for:
 - Release notes document version changes and known limitations.
  
 **Release notes and AMI IDs:** Release notes and AMI IDs are managed outside this repository (AWS Marketplace metadata and internal release notes).
+
+See [`RELEASES.md`](RELEASES.md) for a repository release log scaffold and update guidance.
 
 ---
 
@@ -179,7 +226,7 @@ For common recovery commands and first-boot troubleshooting, see [`docs/troubles
 ## Marketplace listing draft (internal)
 
 Suggested title:
-- **Nginx Proxy Manager – Hardened Edition AMI (Ubuntu 22.04)**
+- **Nginx Proxy Manager (NPM) for AWS — Production-Ready, Secure Admin Plane, Backups & Monitoring**
 
 Feature bullets (draft):
 - Hardened Ubuntu 22.04 baseline with conservative defaults
@@ -214,7 +261,7 @@ See the [`LICENSE`](LICENSE) file for full terms.
 
 ## Product Information
 
-- **Product Name:** Nginx Proxy Manager – Hardened Edition (Ubuntu 22.04)
+- **Product Name:** Nginx Proxy Manager (NPM) for AWS — Production-Ready, Secure Admin Plane, Backups & Monitoring
 - **Vendor:** Northstar Cloud Solutions LLC
 - **Base OS:** Ubuntu Server 22.04 LTS
 - **NPM Version:** Pinned Docker image (see documentation)
