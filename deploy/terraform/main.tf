@@ -81,6 +81,13 @@ variable "backup_prefix" {
   default     = "npm-backups/"
 }
 
+locals {
+  has_backup_bucket = length(var.backup_bucket_name) > 0
+  has_backup_prefix = length(var.backup_prefix) > 0
+  backup_object_arn = local.has_backup_prefix ? "arn:aws:s3:::${var.backup_bucket_name}/${var.backup_prefix}*" : "arn:aws:s3:::${var.backup_bucket_name}/*"
+  backup_list_prefix = local.has_backup_prefix ? "${var.backup_prefix}*" : "*"
+}
+
 data "aws_ami" "npm" {
   most_recent = true
   owners      = var.ami_owners
@@ -142,39 +149,39 @@ data "aws_iam_policy_document" "instance" {
     resources = ["*"]
   }
 
-  # S3 backups are optional; this policy is a template.
-  # If backup_bucket_name is not set, this remains broad (Resource "*").
-  statement {
-    sid    = "S3BackupsWrite"
-    effect = "Allow"
+  dynamic "statement" {
+    for_each = local.has_backup_bucket ? [1] : []
+    content {
+      sid    = "S3BackupsWrite"
+      effect = "Allow"
 
-    actions = [
-      "s3:PutObject",
-      "s3:AbortMultipartUpload"
-    ]
+      actions = [
+        "s3:PutObject",
+        "s3:AbortMultipartUpload"
+      ]
 
-    resources = length(var.backup_bucket_name) > 0 ? [
-      "arn:aws:s3:::${var.backup_bucket_name}/${var.backup_prefix}*"
-    ] : ["*"]
+      resources = [local.backup_object_arn]
+    }
   }
 
-  statement {
-    sid    = "S3BackupsList"
-    effect = "Allow"
+  dynamic "statement" {
+    for_each = local.has_backup_bucket ? [1] : []
+    content {
+      sid    = "S3BackupsList"
+      effect = "Allow"
 
-    actions = [
-      "s3:ListBucket",
-      "s3:GetBucketLocation"
-    ]
+      actions = [
+        "s3:ListBucket",
+        "s3:GetBucketLocation"
+      ]
 
-    resources = length(var.backup_bucket_name) > 0 ? [
-      "arn:aws:s3:::${var.backup_bucket_name}"
-    ] : ["*"]
+      resources = ["arn:aws:s3:::${var.backup_bucket_name}"]
 
-    condition {
-      test     = "StringLike"
-      variable = "s3:prefix"
-      values   = length(var.backup_bucket_name) > 0 ? ["${var.backup_prefix}*"] : ["*"]
+      condition {
+        test     = "StringLike"
+        variable = "s3:prefix"
+        values   = [local.backup_list_prefix]
+      }
     }
   }
 }
@@ -267,5 +274,5 @@ output "instance_public_ip" {
 
 output "nginx_proxy_manager_url" {
   value       = "http://${aws_instance.npm.public_ip}:81"
-  description = "Nginx Proxy Manager (NPM) for AWS admin UI URL."
+  description = "Nginx Proxy Manager (NPM) for AWS admin UI URL (use SSH tunnel or allowlist a trusted IP)."
 }

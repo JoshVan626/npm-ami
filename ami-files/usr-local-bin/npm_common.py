@@ -267,10 +267,34 @@ def detect_instance_ip() -> str:
     Returns:
         IP address string, or "unknown" if detection fails
     """
-    # Try EC2 metadata endpoint for public IP
+    def fetch_imds_token() -> str:
+        try:
+            result = subprocess.run(
+                [
+                    "curl",
+                    "-s",
+                    "-X",
+                    "PUT",
+                    "http://169.254.169.254/latest/api/token",
+                    "-H",
+                    "X-aws-ec2-metadata-token-ttl-seconds: 60"
+                ],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except Exception:
+            pass
+        return ""
+
+    # Try EC2 metadata endpoint for public IP (prefer IMDSv2)
+    token = fetch_imds_token()
+    headers = ["-H", f"X-aws-ec2-metadata-token: {token}"] if token else []
     try:
         result = subprocess.run(
-            ["curl", "-s", "http://169.254.169.254/latest/meta-data/public-ipv4"],
+            ["curl", "-s", *headers, "http://169.254.169.254/latest/meta-data/public-ipv4"],
             capture_output=True,
             text=True,
             timeout=2
