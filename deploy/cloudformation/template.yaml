@@ -37,7 +37,7 @@ Parameters:
   BackupBucketName:
     Type: String
     Default: ''
-    Description: Optional S3 bucket name for backups (leave empty to keep broad S3 permissions).
+    Description: Optional S3 bucket name for backups (leave empty to disable S3 permissions).
 
   BackupPrefix:
     Type: String
@@ -78,18 +78,18 @@ Resources:
                 Action:
                   - cloudwatch:PutMetricData
                 Resource: '*'
-              - Sid: S3BackupsWrite
-                Effect: Allow
-                Action:
-                  - s3:PutObject
-                  - s3:AbortMultipartUpload
-                Resource: !If
+              - !If
                   - HasBackupBucketName
-                  - !If
-                    - HasBackupPrefix
-                    - !Sub 'arn:aws:s3:::${BackupBucketName}/${BackupPrefix}*'
-                    - !Sub 'arn:aws:s3:::${BackupBucketName}/*'
-                  - '*'
+                  - Sid: S3BackupsWrite
+                    Effect: Allow
+                    Action:
+                      - s3:PutObject
+                      - s3:AbortMultipartUpload
+                    Resource: !If
+                      - HasBackupPrefix
+                      - !Sub 'arn:aws:s3:::${BackupBucketName}/${BackupPrefix}*'
+                      - !Sub 'arn:aws:s3:::${BackupBucketName}/*'
+                  - !Ref AWS::NoValue
 
   InstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -227,7 +227,7 @@ Outputs:
     Value: !GetAtt NpmInstance.PublicDnsName
 
   NginxProxyManagerAdminURL:
-    Description: Nginx Proxy Manager (NPM) for AWS admin UI URL (port 81; restricted)
+    Description: Nginx Proxy Manager (NPM) for AWS admin UI URL (port 81; use SSH tunnel or allowlist a trusted IP)
     Value: !Sub 'http://${NpmInstance.PublicIp}:81'
 
   NginxProxyManagerHTTPURL:
