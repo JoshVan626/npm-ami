@@ -25,6 +25,7 @@ Notes:
 - The AMI is discovered via an `aws_ami` data source using the name pattern `npm-hardened-edition-ubuntu22-*`.
 - If your Marketplace AMI is owned by a different account than the default (`aws-marketplace`), set `-var 'ami_owners=["<owner-id>"]'`.
 - **Security group guidance:** restrict `22/tcp` and `81/tcp` to your admin IPs, keep `80/443` public, and avoid public exposure of `81/tcp` (use allowlist or SSH tunnel). AdminCidr/admin_cidrs defaults to `127.0.0.1/32` to prevent accidental public exposure; set it to your public IP/32 before launch.
+- **Admin port 81 has two gates:** (1) the EC2 security group must allow your source CIDR on `81/tcp`, and (2) the instance firewall/UFW must allow it, typically managed via `npm-helper admin-access` or by using an SSH tunnel.
 - **Allowing 0.0.0.0/0 for admin ports is blocked by default.** If you must override (not recommended), set `-var allow_admin_from_anywhere=true`.
 - **Optional S3 scoping:** set `-var backup_bucket_name` and (optionally) `-var backup_prefix` to scope the instance role to your backup bucket/prefix instead of `*`.
 

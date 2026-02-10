@@ -80,6 +80,11 @@ sudo journalctl -u amazon-cloudwatch-agent -n 200 --no-pager
 
 ## NPM admin UI is not reachable on port 81
 
+Port 81 access has **two gates**:
+
+- **Gate 1 – Security Group:** your EC2 security group must allow your source IP/CIDR to port `81/tcp` (never `0.0.0.0/0` for admin UI).
+- **Gate 2 – Instance firewall:** UFW on the instance also restricts port 81; use `npm-helper admin-access` to allowlist your IP or fall back to an SSH tunnel.
+
 1. Check security group:
    - Ensure `81/tcp` is allowed from your IP or CIDR (never open to the internet).
 
@@ -91,7 +96,7 @@ sudo journalctl -u amazon-cloudwatch-agent -n 200 --no-pager
 
    Make sure port 81 appears as allowed from your IP.
 
-   To allowlist your IP using the helper:
+   To allowlist your IP using the helper (instance firewall gate):
 
    ```bash
    sudo npm-helper admin-access enable --cidr <your-ip>/32

@@ -144,6 +144,10 @@ The MOTD script that displays login credentials is **not** shipped as a static f
    sudo ./scripts/05-validate.sh
    
    # Script 06: Cleanup for AMI (WARNING: prepares for snapshot)
+   # Default: prompts for confirmation. For non-interactive builds, you can use:
+   #   sudo ./scripts/06-cleanup-for-ami.sh --yes
+   # or:
+   #   sudo env NORTHSTAR_NONINTERACTIVE=1 ./scripts/06-cleanup-for-ami.sh
    sudo ./scripts/06-cleanup-for-ami.sh
    ```
    

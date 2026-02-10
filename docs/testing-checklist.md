@@ -62,7 +62,7 @@ Run each script in order on a fresh Ubuntu 22.04 EC2 instance and verify:
 - [ ] Docker service starts and is active
 - [ ] `docker --version` works
 - [ ] `docker compose version` works
-- [ ] `ubuntu` user is added to `docker` group (if user exists)
+- [ ] `ubuntu` user runs Docker with `sudo` (not in `docker` group by default)
 
 ### Script 02: NPM Stack Setup
 
@@ -102,11 +102,12 @@ Run each script in order on a fresh Ubuntu 22.04 EC2 instance and verify:
 ### Script 04: CloudWatch Setup
 
 - [ ] Script runs without errors
-- [ ] CloudWatch Agent installs (via apt or .deb download)
-- [ ] Config file is copied to `/opt/aws/amazon-cloudwatch-agent/amazon-cloudwatch-agent.json`
-- [ ] CloudWatch Agent service is enabled
-- [ ] CloudWatch Agent service starts successfully
-- [ ] Service is active after a few seconds
+- [ ] If the `amazon-cloudwatch-agent` apt package is available, the agent installs successfully
+- [ ] If the apt package is unavailable, the script logs a warning and skips installation (build should still succeed)
+- [ ] When installed, config file is copied to `/opt/aws/amazon-cloudwatch-agent/amazon-cloudwatch-agent.json`
+- [ ] When installed, CloudWatch Agent service is enabled
+- [ ] When installed, CloudWatch Agent service starts successfully
+- [ ] When installed, service is active after a few seconds
 
 ### Script 05: Cleanup for AMI
 
@@ -120,6 +121,11 @@ Run each script in order on a fresh Ubuntu 22.04 EC2 instance and verify:
 - [ ] Temporary files are removed
 - [ ] SSH host keys are removed
 - [ ] Sanity checks pass (key directories exist)
+
+### Script 06: Cleanup for AMI (non-interactive)
+
+- [ ] `scripts/06-cleanup-for-ami.sh --yes` runs without prompting for confirmation
+- [ ] `NORTHSTAR_NONINTERACTIVE=1 scripts/06-cleanup-for-ami.sh` runs without prompting for confirmation
 
 ---
 
@@ -199,7 +205,7 @@ sudo npm-helper diagnostics --json | python3 -c 'import sys,json; json.load(sys.
 
 ### NPM Container
 
-- [ ] NPM container is running (`docker ps` shows container)
+- [ ] NPM container is running (`sudo docker ps` shows container)
 - [ ] Container is healthy (no restart loops)
 - [ ] Container logs show no critical errors
 - [ ] Ports 80, 81, 443 are listening

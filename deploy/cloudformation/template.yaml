@@ -133,6 +133,12 @@ Resources:
       SecurityGroupIds:
         - !Ref NpmSecurityGroup
       IamInstanceProfile: !Ref InstanceProfile
+      MetadataOptions:
+        HttpTokens: required
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            Encrypted: true
       Tags:
         - Key: Name
           Value: npm-hardened-edition

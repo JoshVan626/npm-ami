@@ -90,17 +90,18 @@ else
     exit 1
 fi
 
-# Step 5: Add ubuntu user to docker group
+# Step 5: Docker CLI usage for ubuntu user
 echo ""
-echo "[5/5] Adding ubuntu user to docker group..."
+echo "[5/5] Docker CLI usage for ubuntu user..."
 
 if id -u ubuntu &>/dev/null; then
-    usermod -aG docker ubuntu
-    echo "✓ ubuntu user added to docker group"
-    echo "  Note: User must log out and back in for group changes to take effect"
-    UBUNTU_ADDED=true
+    echo "✓ ubuntu user detected"
+    echo "  Secure default: ubuntu is NOT added to the docker group by default."
+    echo "  Use sudo for Docker commands, for example:"
+    echo "    sudo docker ps"
+    UBUNTU_ADDED=false
 else
-    echo "⚠ Warning: ubuntu user not found; skipping docker group assignment"
+    echo "⚠ Warning: ubuntu user not found; no docker CLI guidance applied"
     UBUNTU_ADDED=false
 fi
 
@@ -164,7 +165,7 @@ echo "  - Docker service enabled and started"
 if [[ "$UBUNTU_ADDED" == true ]]; then
     echo "  - ubuntu user added to docker group"
 else
-    echo "  - ubuntu user not found (skipped docker group assignment)"
+    echo "  - ubuntu user should run Docker with sudo (not in docker group by default)"
 fi
 echo ""
 echo "Next steps:"
