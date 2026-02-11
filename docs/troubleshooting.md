@@ -222,3 +222,8 @@ sudo npm-diagnostics
 ```
 
 and include the output (or relevant parts) so we can help you more quickly.
+
+For detailed guidance on what to include in a ticket (logs, diagnostics, and
+build manifest snippets), see the **\"Opening a Support Request\"** section in
+the top-level `README.md` of this repository or the Marketplace listing's
+support instructions.

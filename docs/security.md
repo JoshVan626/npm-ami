@@ -150,3 +150,13 @@ On first boot of an instance:
 - A new machine ID is created
 
 This ensures that **each** EC2 instance launched from the AMI has unique cryptographic material and identity.
+
+---
+
+## Security Maintenance Policy
+
+- The AMI base OS and Docker/NPM stack are periodically rebuilt (for example, on a roughly monthly cadence or as practical) to incorporate upstream security fixes and tested changes.
+- Critical vulnerabilities in the base OS or pinned NPM container image may result in out-of-band AMI refreshes when practical, but there is no guaranteed timeline for specific CVEs.
+- Older AMI versions are not guaranteed to receive fixes; for the best security posture, prefer the latest Marketplace version and plan to rotate instances to newer images over time.
+- Between AMI releases, OS-level security updates on running instances rely on Ubuntu's `unattended-upgrades` and any additional patching practices you apply.
+- Security maintenance and support are provided on a best-effort basis only; no formal SLA or uptime guarantee is offered.

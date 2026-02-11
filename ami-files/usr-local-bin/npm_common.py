@@ -262,21 +262,55 @@ def detect_instance_ip() -> str:
     """
     Detect the instance IP address.
     
-    Tries EC2 metadata endpoint first, then falls back to hostname command.
+    Tries EC2 metadata endpoint (IMDSv2) first, then falls back to hostname
+    command if metadata is unavailable.
     
     Returns:
         IP address string, or "unknown" if detection fails
     """
-    # Try EC2 metadata endpoint for public IP
+    # Try EC2 metadata endpoint for public IP using IMDSv2 tokens. IMDSv2 is
+    # required on hardened instances, so calls without a token are expected to
+    # fail and must not break this helper.
     try:
-        result = subprocess.run(
-            ["curl", "-s", "http://169.254.169.254/latest/meta-data/public-ipv4"],
+        token_result = subprocess.run(
+            [
+                "curl",
+                "-sS",
+                "-m",
+                "1",
+                "-X",
+                "PUT",
+                "http://169.254.169.254/latest/api/token",
+                "-H",
+                "X-aws-ec2-metadata-token-ttl-seconds: 60",
+            ],
             capture_output=True,
             text=True,
-            timeout=2
+            timeout=2,
         )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
+        if token_result.returncode == 0 and token_result.stdout.strip():
+            token = token_result.stdout.strip()
+            # Try public-ipv4 first, then local-ipv4 if empty (e.g. private-only instance).
+            for path in ("public-ipv4", "local-ipv4"):
+                try:
+                    meta_result = subprocess.run(
+                        [
+                            "curl",
+                            "-sS",
+                            "-m",
+                            "1",
+                            "-H",
+                            f"X-aws-ec2-metadata-token: {token}",
+                            f"http://169.254.169.254/latest/meta-data/{path}",
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=2,
+                    )
+                    if meta_result.returncode == 0 and meta_result.stdout.strip():
+                        return meta_result.stdout.strip()
+                except Exception:
+                    pass
     except Exception:
         pass
     

@@ -2,6 +2,26 @@
 
 Use this file to track AMI releases that correspond to AWS Marketplace versions.
 
+## Releases
+
+### Version: v1.0.0-rc1
+**Date:** 2026-02-10 (UTC)  
+**Commit:** TBD (set to `git rev-parse HEAD` at release time)  
+
+**Highlights:**
+- Enforce IMDSv2 and enable encrypted root EBS volumes in Terraform and CloudFormation templates.
+- Tighten Docker privileges by removing default `docker` group membership for the `ubuntu` user (sudo-only Docker usage).
+- Make CloudWatch Agent install deterministic and optional by using the `amazon-cloudwatch-agent` apt package only.
+- Add non-interactive support to the AMI cleanup script via `--yes` and `NORTHSTAR_NONINTERACTIVE=1`.
+- Write a build manifest to `/opt/northstar/build-manifest.txt` with OS, kernel, Docker, NPM image, and dpkg snapshot metadata.
+- Clarify the two-gate admin port 81 access model (security group + instance firewall/UFW) in the documentation.
+
+**Notes:**
+- Recommended for new Marketplace listings and as the first \"golden\" image candidate.
+- Prefer this version over earlier internal builds; older AMIs may not enforce IMDSv2 or root volume encryption.
+
+---
+
 ## Template
 
 ### Version: <ami-version-or-marketplace-version>
