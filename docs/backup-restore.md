@@ -143,6 +143,12 @@ sudo npm-helper backup verify
 This checks that a recent backup exists, validates archive readability, and
 confirms expected components (`/opt/npm/data`, `/opt/npm/letsencrypt`) are present.
 
+List recent backups:
+
+```bash
+ls -1t /var/backups/npm-*.tar.gz | head -n 10
+```
+
 ---
 
 ## Restore dry-run (validation only)

@@ -1,6 +1,6 @@
 [Unit]
 Description=Nginx Proxy Manager First-Boot Initialization
-Documentation=https://docs.northstar.cloud/npm-ami
+Documentation=https://northstarcloud.io/docs/npm-ami
 After=npm.service npm-preflight.service
 Requires=npm.service npm-preflight.service
 ConditionPathExists=!/var/lib/npm-init-complete
@@ -12,6 +12,7 @@ Type=oneshot
 RemainAfterExit=yes
 EnvironmentFile=-/etc/northstar/npm-init.env
 ExecStart=/usr/local/bin/npm-init.py
+TimeoutStartSec=360
 StandardOutput=journal
 StandardError=journal
 Restart=on-failure

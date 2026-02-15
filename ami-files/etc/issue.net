@@ -3,5 +3,12 @@ Nginx Proxy Manager (NPM) for AWS — by Northstar Cloud Solutions
 Unauthorized access is prohibited. All activity may be
 monitored and logged.
 
-For documentation, visit: https://docs.northstar.cloud/npm-ami
+First-boot checklist:
+- Admin URL: http://<instance-ip>:81
+- Retrieve credentials: sudo npm-helper show-creds
+- Open ports by default: 22, 80, 443
+- Admin UI port 81: restrict to trusted IP or use SSH tunnel
+  (sudo npm-helper admin-access enable --cidr <your-ip>/32)
+
+Documentation: https://northstarcloud.io/docs/npm-ami
 *******************************************************

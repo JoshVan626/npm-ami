@@ -22,6 +22,11 @@ CloudWatch integration is **optional**. This AMI functions normally without any 
 - `/var/log/auth.log`
 - `/var/lib/docker/containers/*/*-json.log`
 
+Not shipped by default:
+
+- `/root/.northstar/npm-admin-credentials`
+- `/var/log/northstar/cred-access.log`
+
 **Metrics** (CloudWatch namespace: `NorthstarCloudSolutions/System`):
 
 - Disk: used percent on `/`

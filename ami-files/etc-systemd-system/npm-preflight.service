@@ -1,6 +1,6 @@
 [Unit]
 Description=Northstar NPM preflight checks (first boot)
-Documentation=https://docs.northstar.cloud/npm-ami
+Documentation=https://northstarcloud.io/docs/npm-ami
 Wants=network-online.target
 After=network-online.target docker.service
 Before=npm-init.service
@@ -9,6 +9,7 @@ ConditionPathExists=!/var/lib/npm-init-complete
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/npm-preflight
+TimeoutStartSec=300
 StandardOutput=journal
 StandardError=journal
 

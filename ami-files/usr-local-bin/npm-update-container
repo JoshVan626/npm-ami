@@ -238,9 +238,9 @@ run_backup() {
     echo "Error: backup script not found or not executable: $BACKUP_SCRIPT" >&2
     exit 1
   fi
-  echo "Running safety backup: $BACKUP_SCRIPT"
+  echo "Step 1/4: Running safety backup (required): $BACKUP_SCRIPT"
   "$BACKUP_SCRIPT"
-  echo "Backup OK"
+  echo "Safety backup completed."
 }
 
 health_check() {
@@ -270,7 +270,7 @@ main() {
     exit 1
   fi
 
-  local new_tag new_image ts compose_backup
+  local new_tag new_image current_image ts compose_backup
   new_tag="$1"
   validate_tag "$new_tag"
   new_image="${IMAGE_REPO}:${new_tag}"
@@ -280,23 +280,38 @@ main() {
     exit 1
   fi
 
+  current_image="$(python_compose_get_image "$COMPOSE_FILE" 2>/dev/null || true)"
+  if [[ -z "${current_image}" ]]; then
+    echo "Error: could not determine current image from $COMPOSE_FILE" >&2
+    exit 1
+  fi
+
+  echo "Planned in-place image update:"
+  echo "  Current image: $current_image"
+  echo "  Target image:  $new_image"
+  echo "  Backup-first policy is enforced before any compose change."
+
   run_backup
 
   ts="$(date -u +%Y%m%dT%H%M%SZ)"
   compose_backup="${COMPOSE_FILE}.bak.${ts}"
   cp -a "$COMPOSE_FILE" "$compose_backup"
-  echo "Backed up compose file: $compose_backup"
+  echo "Step 2/4: Backed up compose file: $compose_backup"
 
   python_compose_set_image "$COMPOSE_FILE" "$new_image"
 
-  echo "Updated compose to: image: \"$new_image\""
+  echo "Step 3/4: Updated compose to: image: \"$new_image\""
 
-  echo "Applying update (pull + up -d)..."
+  echo "Step 4/4: Applying update (pull + up -d)..."
   ( cd "$COMPOSE_DIR" && docker compose pull && docker compose up -d )
 
   echo "Waiting for service health on $HEALTHCHECK_URL (timeout ${HEALTHCHECK_TIMEOUT_S}s)..."
   if health_check; then
-    echo "Update successful: $new_image"
+    echo "Update successful."
+    echo "  Previous image: $current_image"
+    echo "  Current image:  $new_image"
+    echo "If you need to revert later, restore the last known-good backup with:"
+    echo "  sudo npm-helper restore /var/backups/npm-YYYYMMDDHHMMSS.tar.gz"
     exit 0
   fi
 

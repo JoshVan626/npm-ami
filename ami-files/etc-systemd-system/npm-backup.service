@@ -1,10 +1,11 @@
 [Unit]
 Description=Northstar Cloud Solutions NPM Backup
-Documentation=https://docs.northstar.cloud/npm-ami
+Documentation=https://northstarcloud.io/docs/npm-ami
 
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/npm-backup
+TimeoutStartSec=900
 StandardOutput=journal
 StandardError=journal
 

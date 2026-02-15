@@ -97,56 +97,51 @@ The AMI pins NPM to a specific, tested Docker image tag for stability. The recom
 - A security vulnerability is patched in a newer version
 - You're comfortable troubleshooting Docker and NPM issues
 
-### Conservative in-place steps (patch updates)
+### Supported in-place workflow (backup-first helper)
 
-1. **Backup first:**
+Use the helper-backed workflow instead of manually editing compose files:
+
+1. **Run preflight (no changes):**
    ```bash
-   sudo npm-backup
+   sudo npm-helper upgrade --dry-run
    ```
 
-2. **Edit the Docker Compose file to a newer patch tag:**
+2. **Run backup-first upgrade flow:**
    ```bash
-   sudo nano /opt/npm/docker-compose.yml
-   ```
-   
-   Change the image tag, for example:
-   ```yaml
-   # From:
-   image: "jc21/nginx-proxy-manager:2.13.5"
-   
-   # To:
-   image: "jc21/nginx-proxy-manager:2.13.6"
+   sudo npm-helper upgrade
    ```
 
-3. **Pull the new image:**
+3. **If you need to set a specific NPM image tag:**
    ```bash
-   cd /opt/npm
-   sudo docker compose pull
+   sudo npm-update-container <new_tag>
    ```
 
-4. **Restart the stack:**
-   ```bash
-   sudo systemctl restart npm
-   ```
+`npm-update-container` enforces a safety backup, updates the compose image tag,
+recreates containers, performs a local health check, and attempts rollback if
+the new stack is unhealthy.
 
-5. **Verify everything works:**
+4. **Verify everything works:**
    - Check NPM admin UI is accessible
    - Verify all proxy hosts are still configured
-   - Test a few proxy hosts
-   - Monitor for a few hours
+   - Test critical proxy routes and TLS endpoints
+   - Monitor logs for at least one backup cycle
 
 ### Rollback (revert the pinned tag)
 
 If something breaks after an in-place update:
 
-1. Revert the `image:` tag in `/opt/npm/docker-compose.yml` back to the previously pinned value.
-2. Restart the stack:
-
+1. Restore from a known-good backup archive:
    ```bash
-   sudo systemctl restart npm
+   sudo npm-helper restore /var/backups/npm-YYYYMMDDHHMMSS.tar.gz
    ```
-
-3. If needed, restore from a known-good backup using `npm-restore`.
+2. If needed, revert to a known-good tag explicitly:
+   ```bash
+   sudo npm-update-container <known_good_tag>
+   ```
+3. Re-run status and health checks:
+   ```bash
+   sudo npm-helper status
+   ```
 
 ### Staying on the pinned version
 

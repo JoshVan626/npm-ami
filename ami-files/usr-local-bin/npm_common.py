@@ -339,7 +339,6 @@ def build_motd_script(ip: str, username: str, creds_path: str = CREDENTIALS_PATH
     Args:
         ip: Instance IP address (or "unknown")
         username: Admin username
-        password: Admin password
     
     Returns:
         Complete bash script content as string
@@ -361,16 +360,18 @@ if [ -f /var/lib/npm-init-complete ]; then
     echo ""
     echo "  NPM initialized: credentials stored at {creds_path}"
     echo "  Run: sudo npm-helper show-creds"
+    echo "  Docs: https://northstarcloud.io/docs/npm-ami"
     echo ""
     echo "  Onboarding Checklist:"
     echo "  1. Log into NPM and immediately change the admin password"
     echo "  2. Configure your first Proxy Host"
     echo "  3. (Optional) Set up HTTPS with Let's Encrypt"
-    echo "  4. Configure periodic backups using npm-backup"
+    echo "  4. Verify backups with: sudo npm-helper backup verify"
     echo ""
     echo "  Security expectations:"
     echo "  - Open ports by default: 22/80/443"
-    echo "  - Port 81 (admin UI) is restricted; allowlist a trusted IP or use SSH tunnel"
+    echo "  - Port 81 (admin UI) is restricted; allowlist with: sudo npm-helper admin-access enable --cidr <your-ip>/32"
+    echo "  - SSH tunnel option: ssh -L 8181:localhost:81 ubuntu@<instance-ip>"
     echo "  - SSH keys only; root login disabled"
     echo "  - Rotate the admin password after first login"
     echo "  - CloudWatch shipping requires an optional instance role (IAM) for logs/metrics"

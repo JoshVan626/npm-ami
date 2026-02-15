@@ -218,7 +218,8 @@ If the agent is running but logs are missing, IAM permissions are the most commo
 Before opening a support request, run:
 
 ```bash
-sudo npm-diagnostics
+sudo npm-support-bundle
+sudo npm-helper diagnostics --json
 ```
 
 and include the output (or relevant parts) so we can help you more quickly.

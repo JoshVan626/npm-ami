@@ -147,8 +147,10 @@ if [ "$init_status" = "incomplete" ] || [ -n "$preflight_line" ] || [ -n "$posti
   fi
 
   echo ""
-  echo "  Security expectations: open ports 22/80/81/443; SSH keys only; root login disabled;"
+  echo "  Security expectations: open ports 22/80/443 by default; port 81 is restricted;"
+  echo "  Allow admin UI only from trusted IPs: sudo npm-helper admin-access enable --cidr <your-ip>/32"
   echo "  CloudWatch requires an optional instance role (IAM) for logs/metrics."
+  echo "  Docs: https://northstarcloud.io/docs/npm-ami"
 
   # Next steps if preflight/postinit failed
   echo ""

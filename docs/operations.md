@@ -29,6 +29,8 @@ On first boot, `npm-init.service` runs once to:
 5. Update the SSH login banner (MOTD) with a non-sensitive status message
 
 The wait time accounts for slow instance types or cold container pulls.
+If initialization is interrupted before completion, rerunning `npm-init.service`
+reuses the existing credentials file when present to avoid accidental password churn.
 
 ### Admin email
 
@@ -244,6 +246,7 @@ Additional opt-in commands:
 - `sudo npm-helper cert-check` – run the certificate expiry check immediately
 - `sudo npm-helper upgrade --dry-run` – preflight + show planned steps
 - `sudo npm-helper upgrade` – run a backup-first upgrade using the existing compose pins
+- `sudo npm-update-container <tag>` – backup-first in-place image tag update with health check + rollback attempt
 - `sudo npm-helper backup verify` – verify the latest backup archive
 - `sudo npm-helper restore --dry-run <backup>` – validate a restore without changes
 

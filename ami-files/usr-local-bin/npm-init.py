@@ -12,6 +12,7 @@ import sqlite3
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 
 # Import shared utilities
 from npm_common import (
@@ -33,6 +34,8 @@ MARKER_FILE = Path("/var/lib/npm-init-complete")
 DB_PATH = Path("/opt/npm/data/database.sqlite")
 CREDENTIALS_FILE = Path(CREDENTIALS_PATH)
 MOTD_SCRIPT = Path("/etc/update-motd.d/50-npm-info")
+WAIT_FOR_DB_FILE_TIMEOUT_SECONDS = 300
+INIT_RETRY_WINDOW_SECONDS = 300
 
 # Setup logging
 logging.basicConfig(
@@ -43,7 +46,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def simple_wait_for_file(path: Path, timeout: int = 60) -> bool:
+def simple_wait_for_file(path: Path, timeout: int = WAIT_FOR_DB_FILE_TIMEOUT_SECONDS) -> bool:
     """Wait for the DB file to be created on disk and be non-empty."""
     start = time.time()
     logger.info("Waiting for %s to appear...", path)
@@ -55,7 +58,36 @@ def simple_wait_for_file(path: Path, timeout: int = 60) -> bool:
         except FileNotFoundError:
             pass
         time.sleep(1)
+    logger.error("Timed out waiting for %s after %ss", path, timeout)
     return False
+
+
+def load_existing_credentials_password(path: Path, expected_username: str) -> Optional[str]:
+    """Return existing password if credentials file is present and matches the admin username."""
+    if not path.exists():
+        return None
+
+    username = None
+    password = None
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("Username:"):
+                    username = line.split(":", 1)[1].strip()
+                elif line.startswith("Password:"):
+                    password = line.split(":", 1)[1].strip()
+    except Exception as exc:
+        logger.warning("Could not read existing credentials file (%s): %s", path, exc)
+        return None
+
+    if username != expected_username or not password:
+        logger.warning(
+            "Credentials file exists but is incomplete or for unexpected username; generating new password."
+        )
+        return None
+
+    logger.info("Reusing existing stored credentials from %s for deterministic rerun safety.", path)
+    return password
 
 
 def ensure_admin_user_exists(conn: sqlite3.Connection, email: str, password_hash: str) -> bool:
@@ -138,17 +170,24 @@ def main() -> None:
         sys.exit(0)
 
     # 1) Wait for the DB file (loose check)
-    if not simple_wait_for_file(DB_PATH, timeout=60):
+    if not simple_wait_for_file(DB_PATH, timeout=WAIT_FOR_DB_FILE_TIMEOUT_SECONDS):
         logger.error("Database file never appeared. Aborting.")
         sys.exit(1)
 
-    # Generate password
-    password = generate_password()
+    # Reuse existing password on rerun if credentials file already exists.
+    # This prevents accidental password churn when first boot is interrupted.
+    password = load_existing_credentials_password(CREDENTIALS_FILE, ADMIN_EMAIL)
+    if password is None:
+        password = generate_password()
+        logger.info("Generated a new admin password for first-boot initialization.")
+    else:
+        logger.info("Using previously generated admin password from credentials file.")
+
     password_hash = hash_password(password)
 
     # 2) Loop until we can connect and seed/update (bounded)
     success = False
-    deadline = time.time() + 60
+    deadline = time.time() + INIT_RETRY_WINDOW_SECONDS
 
     while time.time() < deadline:
         conn = None
@@ -172,7 +211,10 @@ def main() -> None:
         time.sleep(2)
 
     if not success:
-        logger.error("Could not seed/update database after retries.")
+        logger.error(
+            "Could not seed/update database after retries within %ss.",
+            INIT_RETRY_WINDOW_SECONDS,
+        )
         sys.exit(1)
 
     # 3) Finalize

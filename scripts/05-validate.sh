@@ -79,6 +79,7 @@ echo ""
 
 # 1) Expected payload files
 require_file "ami-files/opt-npm/docker-compose.yml"
+require_file "scripts/07-secret-scan.sh"
 require_file "ami-files/etc-systemd-system/npm.service"
 require_file "ami-files/etc-systemd-system/npm-preflight.service"
 require_file "ami-files/etc-systemd-system/npm-init.service"
@@ -96,6 +97,14 @@ require_file "ami-files/usr-local-bin/npm-preflight"
 require_file "ami-files/usr-local-bin/npm-postinit"
 require_file "ami-files/usr-local-bin/northstar"
 require_file "ami-files/etc/npm-cert-check.conf"
+
+# 1b) Secret scan gate (high-signal patterns only)
+SECRET_SCAN_SCRIPT="$REPO_ROOT/scripts/07-secret-scan.sh"
+if bash "$SECRET_SCAN_SCRIPT"; then
+  pass "secret scan gate"
+else
+  fail "secret scan gate failed"
+fi
 
 # 2) Python validation (compile)
 PY_CANDIDATES=(

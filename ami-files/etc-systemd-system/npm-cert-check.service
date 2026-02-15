@@ -1,11 +1,12 @@
 [Unit]
 Description=Northstar Cloud Solutions NPM certificate expiry check
-Documentation=https://docs.northstar.cloud/npm-ami
+Documentation=https://northstarcloud.io/docs/npm-ami
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/npm-cert-check
+TimeoutStartSec=180
 StandardOutput=journal
 StandardError=journal
