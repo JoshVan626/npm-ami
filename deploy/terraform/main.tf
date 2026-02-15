@@ -57,6 +57,30 @@ variable "instance_type" {
   default     = "t3.small"
 }
 
+variable "associate_eip" {
+  description = "If true, allocate and associate an Elastic IP."
+  type        = bool
+  default     = false
+}
+
+variable "root_volume_size" {
+  description = "Root EBS volume size in GiB."
+  type        = number
+  default     = 16
+}
+
+variable "root_volume_type" {
+  description = "Root EBS volume type."
+  type        = string
+  default     = "gp3"
+}
+
+variable "create_instance_profile" {
+  description = "If true, create and attach an instance profile for optional CloudWatch/S3 backup permissions."
+  type        = bool
+  default     = false
+}
+
 variable "ami_name_pattern" {
   description = "AMI name pattern used to discover the latest AMI."
   type        = string
@@ -109,7 +133,8 @@ data "aws_ami" "npm" {
 }
 
 resource "aws_iam_role" "instance" {
-  name = "npm-hardened-edition-instance-role"
+  count = var.create_instance_profile ? 1 : 0
+  name  = "npm-hardened-edition-instance-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -126,6 +151,7 @@ resource "aws_iam_role" "instance" {
 }
 
 data "aws_iam_policy_document" "instance" {
+  count = var.create_instance_profile ? 1 : 0
   statement {
     sid    = "CloudWatchLogsWrite"
     effect = "Allow"
@@ -187,14 +213,16 @@ data "aws_iam_policy_document" "instance" {
 }
 
 resource "aws_iam_role_policy" "instance" {
+  count  = var.create_instance_profile ? 1 : 0
   name   = "npm-hardened-edition-instance-policy"
-  role   = aws_iam_role.instance.id
-  policy = data.aws_iam_policy_document.instance.json
+  role   = aws_iam_role.instance[0].id
+  policy = data.aws_iam_policy_document.instance[0].json
 }
 
 resource "aws_iam_instance_profile" "instance" {
-  name = "npm-hardened-edition-instance-profile"
-  role = aws_iam_role.instance.name
+  count = var.create_instance_profile ? 1 : 0
+  name  = "npm-hardened-edition-instance-profile"
+  role  = aws_iam_role.instance[0].name
 }
 
 resource "aws_security_group" "npm" {
@@ -260,7 +288,7 @@ resource "aws_instance" "npm" {
   subnet_id              = var.subnet_id
   key_name               = var.key_name
   vpc_security_group_ids = [aws_security_group.npm.id]
-  iam_instance_profile   = aws_iam_instance_profile.instance.name
+  iam_instance_profile   = var.create_instance_profile ? aws_iam_instance_profile.instance[0].name : null
 
   # Enforce IMDSv2-only access to instance metadata.
   metadata_options {
@@ -271,7 +299,9 @@ resource "aws_instance" "npm" {
   # Ensure the root EBS volume is encrypted by default while preserving
   # size/type and other characteristics inherited from the AMI.
   root_block_device {
-    encrypted = true
+    encrypted   = true
+    volume_size = var.root_volume_size
+    volume_type = var.root_volume_type
   }
 
   tags = {
@@ -279,12 +309,26 @@ resource "aws_instance" "npm" {
   }
 }
 
+resource "aws_eip" "npm" {
+  count    = var.associate_eip ? 1 : 0
+  domain   = "vpc"
+  instance = aws_instance.npm.id
+  tags = {
+    Name = "npm-hardened-edition-eip"
+  }
+}
+
 output "instance_public_ip" {
-  value       = aws_instance.npm.public_ip
+  value       = var.associate_eip ? aws_eip.npm[0].public_ip : aws_instance.npm.public_ip
   description = "Public IP of the Nginx Proxy Manager (NPM) for AWS instance."
 }
 
-output "nginx_proxy_manager_url" {
-  value       = "http://${aws_instance.npm.public_ip}:81"
+output "nginx_proxy_manager_admin_url" {
+  value       = "http://${var.associate_eip ? aws_eip.npm[0].public_ip : aws_instance.npm.public_ip}:81"
   description = "Nginx Proxy Manager (NPM) for AWS admin UI URL (use SSH tunnel or allowlist a trusted IP)."
+}
+
+output "credentials_path" {
+  value       = "/root/.northstar/npm-admin-credentials"
+  description = "Root-only credentials file path on the instance (retrieve via sudo npm-helper show-creds)."
 }

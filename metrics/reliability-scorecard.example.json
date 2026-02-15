@@ -1,0 +1,23 @@
+{
+  "generated_at_utc": "2026-02-15T00:00:00Z",
+  "source": "example",
+  "first_boot": {
+    "total": 10,
+    "success": 10,
+    "success_rate_percent": 100.0
+  },
+  "upgrade": {
+    "total": 10,
+    "success": 9,
+    "success_rate_percent": 90.0
+  },
+  "restore": {
+    "total": 10,
+    "success": 10,
+    "success_rate_percent": 100.0
+  },
+  "recovery_time_seconds": {
+    "rollback_path": 47.2,
+    "restore_path": 61.8
+  }
+}

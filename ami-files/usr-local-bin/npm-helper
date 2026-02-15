@@ -10,6 +10,8 @@ Provides administrative commands for managing Nginx Proxy Manager:
 - status: Show system and service status
 - cert-check: Check certificate expiry
 - upgrade: Safe, backup-first upgrade workflow
+- rollback: Roll back to a last-known-good upgrade state
+- observability: Opt-in CloudWatch baseline enable/disable/status
 - backup verify: Verify latest backup archive
 - restore: Restore a backup archive (supports dry-run)
 """
@@ -18,10 +20,12 @@ import argparse
 import configparser
 import json
 import os
+import re
 import subprocess
 import sys
 import time
 import shutil
+import shlex
 import ipaddress
 import getpass
 from datetime import datetime
@@ -65,6 +69,15 @@ BACKUP_STATE_DIR = "/var/lib/northstar/npm"
 SENTINEL_LAST_RUN = f"{BACKUP_STATE_DIR}/backup-last-run"
 SENTINEL_LAST_SUCCESS = f"{BACKUP_STATE_DIR}/backup-last-success"
 SENTINEL_LAST_FAILURE = f"{BACKUP_STATE_DIR}/backup-last-failure"
+UPGRADE_STATE_DIR = f"{BACKUP_STATE_DIR}/upgrade"
+LAST_KNOWN_GOOD_PATH = f"{UPGRADE_STATE_DIR}/last-known-good.json"
+LAST_ATTEMPT_PATH = f"{UPGRADE_STATE_DIR}/last-attempt.json"
+OBS_STATE_PATH = f"{UPGRADE_STATE_DIR}/observability-state.json"
+CW_LOG_GROUP = "/northstar-cloud-solutions/npm"
+CW_NAMESPACE = "NorthstarCloudSolutions/System"
+CW_AGENT_CONFIG = "/opt/aws/amazon-cloudwatch-agent/amazon-cloudwatch-agent.json"
+CW_DASHBOARD_TEMPLATE = "/opt/aws/amazon-cloudwatch-agent/dashboard.baseline.json"
+CW_ALARMS_TEMPLATE = "/opt/aws/amazon-cloudwatch-agent/alarms.baseline.json"
 
 # First-boot status files
 PREFLIGHT_STATUS = f"{BACKUP_STATE_DIR}/preflight-status"
@@ -112,6 +125,393 @@ def get_backup_dir() -> str:
 
 def get_backup_retention() -> int:
     return read_config_int(BACKUP_CONFIG, "backup", "local_retention", fallback=7)
+
+
+def ensure_upgrade_state_dir() -> None:
+    Path(UPGRADE_STATE_DIR).mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(UPGRADE_STATE_DIR, 0o750)
+    except Exception:
+        pass
+
+
+def write_state_json(path: str, payload: dict) -> None:
+    ensure_upgrade_state_dir()
+    tmp_path = f"{path}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, sort_keys=True)
+        f.write("\n")
+    try:
+        os.chmod(tmp_path, 0o640)
+    except Exception:
+        pass
+    os.replace(tmp_path, path)
+
+
+def read_state_json(path: str):
+    p = Path(path)
+    if not p.exists():
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def get_compose_image(compose_file: Path):
+    try:
+        text = compose_file.read_text(encoding="utf-8")
+    except Exception:
+        return None
+    match = re.search(r'(?m)^[ \t]*image:[ \t]*"?([^"\n]+)"?[ \t]*$', text)
+    if not match:
+        return None
+    return match.group(1).strip()
+
+
+def set_compose_image(compose_file: Path, image: str) -> bool:
+    try:
+        text = compose_file.read_text(encoding="utf-8")
+    except Exception:
+        return False
+    pattern = re.compile(r'(?m)^([ \t]*image:[ \t]*).*$')
+    if not pattern.search(text):
+        return False
+    updated = pattern.sub(rf'\1"{image}"', text, count=1)
+    compose_file.write_text(updated, encoding="utf-8")
+    return True
+
+
+def check_npm_health(compose_dir: str, timeout_seconds: int = 90):
+    deadline = time.time() + timeout_seconds
+    last_container_state = "unknown"
+    last_http81 = None
+    last_http_api = None
+    while time.time() < deadline:
+        ps = run_cmd(["docker", "compose", "ps", "--format", "json"], cwd=compose_dir, timeout=10)
+        containers = []
+        if ps.returncode == 0 and ps.stdout.strip():
+            for line in ps.stdout.strip().splitlines():
+                try:
+                    containers.append(json.loads(line))
+                except Exception:
+                    continue
+
+        if containers:
+            running = [c for c in containers if str(c.get("State", "")).lower() == "running"]
+            if running:
+                unhealthy = [c for c in running if str(c.get("Health", "")).lower() == "unhealthy"]
+                if not unhealthy:
+                    last_container_state = "running"
+                else:
+                    last_container_state = "unhealthy"
+            else:
+                last_container_state = "not_running"
+
+        if shutil.which("curl"):
+            c81 = run_cmd(["curl", "-sS", "-m", "5", "-o", "/dev/null", "-w", "%{http_code}", "http://127.0.0.1:81"], timeout=10)
+            capi = run_cmd(["curl", "-sS", "-m", "5", "-o", "/dev/null", "-w", "%{http_code}", "http://127.0.0.1:81/api"], timeout=10)
+            last_http81 = c81.stdout.strip() if c81.returncode == 0 else "000"
+            last_http_api = capi.stdout.strip() if capi.returncode == 0 else "000"
+
+            if (
+                last_container_state == "running"
+                and re.match(r"^[23][0-9][0-9]$", last_http81 or "")
+                and re.match(r"^[23][0-9][0-9]$", last_http_api or "")
+            ):
+                return {
+                    "ok": True,
+                    "container_state": last_container_state,
+                    "http_81": last_http81,
+                    "http_api": last_http_api,
+                }
+
+        time.sleep(3)
+
+    return {
+        "ok": False,
+        "container_state": last_container_state,
+        "http_81": last_http81,
+        "http_api": last_http_api,
+    }
+
+
+def run_or_print(cmd, dry_run: bool = False):
+    if dry_run:
+        print(f"[dry-run] {shlex.join(cmd)}")
+        return 0
+    result = run_cmd(cmd, timeout=120)
+    if result.returncode != 0:
+        if result.stdout.strip():
+            print(result.stdout.strip())
+        if result.stderr.strip():
+            print(result.stderr.strip())
+    return result.returncode
+
+
+def get_imds_token():
+    token = run_cmd(
+        [
+            "curl",
+            "-sS",
+            "-m",
+            "1",
+            "-X",
+            "PUT",
+            "http://169.254.169.254/latest/api/token",
+            "-H",
+            "X-aws-ec2-metadata-token-ttl-seconds: 60",
+        ],
+        timeout=2,
+    )
+    if token.returncode != 0 or not token.stdout.strip():
+        return None
+    return token.stdout.strip()
+
+
+def get_imds_value(path: str, token: str):
+    result = run_cmd(
+        [
+            "curl",
+            "-sS",
+            "-m",
+            "1",
+            "-H",
+            f"X-aws-ec2-metadata-token: {token}",
+            f"http://169.254.169.254/latest/{path}",
+        ],
+        timeout=2,
+    )
+    if result.returncode != 0:
+        return None
+    value = result.stdout.strip()
+    return value if value else None
+
+
+def substitute_obj(obj, replacements: dict):
+    if isinstance(obj, dict):
+        return {k: substitute_obj(v, replacements) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [substitute_obj(i, replacements) for i in obj]
+    if isinstance(obj, str):
+        out = obj
+        for key, value in replacements.items():
+            out = out.replace(key, value)
+        return out
+    return obj
+
+
+def cmd_observability(action: str, dry_run: bool = False, region_override: str = "") -> None:
+    """
+    Manage opt-in CloudWatch observability baseline.
+    """
+    require_root(f"observability {action}")
+    if action not in ("enable", "disable", "status"):
+        print("Error: invalid observability action.")
+        sys.exit(1)
+
+    service = "amazon-cloudwatch-agent.service"
+    st = systemd_unit_status(service, [])
+    token = get_imds_token()
+    instance_id = get_imds_value("meta-data/instance-id", token) if token else None
+    az = get_imds_value("meta-data/placement/availability-zone", token) if token else None
+    region = region_override.strip() or ((az[:-1]) if az and len(az) > 1 else "")
+
+    if action == "status":
+        print("Observability status")
+        print("=" * 50)
+        print(f"CloudWatch agent active={st.get('active')} enabled={st.get('enabled')}")
+        state = read_state_json(OBS_STATE_PATH)
+        if state:
+            print(f"State file: {OBS_STATE_PATH}")
+            print(f"Enabled: {state.get('enabled')}")
+            print(f"Dashboard: {state.get('dashboard_name')}")
+            alarms = state.get("alarm_names") or []
+            if alarms:
+                print("Alarms:")
+                for a in alarms:
+                    print(f" - {a}")
+        else:
+            print("State file: not found")
+        if instance_id:
+            print(f"InstanceId: {instance_id}")
+        if region:
+            print(f"Region: {region}")
+        sys.exit(0)
+
+    if not shutil.which("aws"):
+        print("Error: aws CLI is required for observability enable/disable.")
+        sys.exit(1)
+    if not token or not instance_id or not region:
+        print("Error: unable to determine instance identity/region from IMDSv2.")
+        print("Attach an instance profile and run on EC2, or pass --region where applicable.")
+        sys.exit(1)
+    if not Path(CW_AGENT_CONFIG).exists():
+        print(f"Error: CloudWatch agent config missing: {CW_AGENT_CONFIG}")
+        sys.exit(1)
+
+    state = read_state_json(OBS_STATE_PATH) or {}
+    dashboard_name = f"northstar-npm-{instance_id}"
+    alarm_names = []
+    metric_filter_names = []
+
+    if action == "enable":
+        if not Path(CW_DASHBOARD_TEMPLATE).exists() or not Path(CW_ALARMS_TEMPLATE).exists():
+            print("Error: observability templates are missing under /opt/aws/amazon-cloudwatch-agent.")
+            sys.exit(1)
+        try:
+            dashboard = json.loads(Path(CW_DASHBOARD_TEMPLATE).read_text(encoding="utf-8"))
+            alarms = json.loads(Path(CW_ALARMS_TEMPLATE).read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"Error: failed to parse observability templates: {e}")
+            sys.exit(1)
+
+        replacements = {
+            "__INSTANCE_ID__": instance_id,
+            "__REGION__": region,
+            "__LOG_GROUP__": CW_LOG_GROUP,
+            "__NAMESPACE__": CW_NAMESPACE,
+        }
+        dashboard = substitute_obj(dashboard, replacements)
+        alarms = substitute_obj(alarms, replacements)
+
+        print("Enabling observability baseline...")
+        if run_or_print(["systemctl", "enable", "--now", service], dry_run=dry_run) != 0:
+            sys.exit(1)
+
+        dash_body = json.dumps(dashboard, separators=(",", ":"))
+        if run_or_print(
+            [
+                "aws",
+                "cloudwatch",
+                "put-dashboard",
+                "--region",
+                region,
+                "--dashboard-name",
+                dashboard_name,
+                "--dashboard-body",
+                dash_body,
+            ],
+            dry_run=dry_run,
+        ) != 0:
+            sys.exit(1)
+
+        for mf in alarms.get("metric_filters", []):
+            mf_name = mf.get("name")
+            metric_filter_names.append(mf_name)
+            if run_or_print(
+                [
+                    "aws",
+                    "logs",
+                    "put-metric-filter",
+                    "--region",
+                    region,
+                    "--log-group-name",
+                    mf.get("log_group", CW_LOG_GROUP),
+                    "--filter-name",
+                    mf_name,
+                    "--filter-pattern",
+                    mf.get("pattern", ""),
+                    "--metric-transformations",
+                    f"metricName={mf.get('metric_name')},metricNamespace={mf.get('metric_namespace')},metricValue={mf.get('metric_value', '1')},defaultValue={mf.get('default_value', '0')}",
+                ],
+                dry_run=dry_run,
+            ) != 0:
+                sys.exit(1)
+
+        for alarm in alarms.get("alarms", []):
+            alarm_name = alarm.get("name")
+            alarm_names.append(alarm_name)
+            cmd = [
+                "aws",
+                "cloudwatch",
+                "put-metric-alarm",
+                "--region",
+                region,
+                "--alarm-name",
+                alarm_name,
+                "--alarm-description",
+                alarm.get("description", "Northstar NPM baseline alarm"),
+                "--namespace",
+                alarm.get("namespace", CW_NAMESPACE),
+                "--metric-name",
+                alarm.get("metric_name"),
+                "--statistic",
+                alarm.get("statistic", "Average"),
+                "--period",
+                str(alarm.get("period", 300)),
+                "--evaluation-periods",
+                str(alarm.get("evaluation_periods", 3)),
+                "--threshold",
+                str(alarm.get("threshold", 80)),
+                "--comparison-operator",
+                alarm.get("comparison_operator", "GreaterThanThreshold"),
+                "--treat-missing-data",
+                alarm.get("treat_missing_data", "missing"),
+            ]
+            dims = [f"Name={dim.get('name')},Value={dim.get('value')}" for dim in alarm.get("dimensions", [])]
+            if dims:
+                cmd.extend(["--dimensions"] + dims)
+            if run_or_print(cmd, dry_run=dry_run) != 0:
+                sys.exit(1)
+
+        state = {
+            "enabled": True,
+            "updated_at": datetime.utcnow().isoformat() + "Z",
+            "instance_id": instance_id,
+            "region": region,
+            "dashboard_name": dashboard_name,
+            "alarm_names": alarm_names,
+            "metric_filter_names": metric_filter_names,
+            "log_group": CW_LOG_GROUP,
+            "required_iam_actions": [
+                "cloudwatch:PutDashboard",
+                "cloudwatch:PutMetricAlarm",
+                "cloudwatch:DeleteAlarms",
+                "cloudwatch:DeleteDashboards",
+                "logs:PutMetricFilter",
+                "logs:DeleteMetricFilter",
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents",
+                "cloudwatch:PutMetricData",
+            ],
+        }
+        if not dry_run:
+            write_state_json(OBS_STATE_PATH, state)
+        print("Observability baseline enabled.")
+        sys.exit(0)
+
+    # disable
+    print("Disabling observability baseline...")
+    dashboard_to_delete = state.get("dashboard_name", dashboard_name)
+    for alarm_name in state.get("alarm_names", []):
+        run_or_print(["aws", "cloudwatch", "delete-alarms", "--region", region, "--alarm-names", alarm_name], dry_run=dry_run)
+    if dashboard_to_delete:
+        run_or_print(["aws", "cloudwatch", "delete-dashboards", "--region", region, "--dashboard-names", dashboard_to_delete], dry_run=dry_run)
+    for mf_name in state.get("metric_filter_names", []):
+        run_or_print(
+            ["aws", "logs", "delete-metric-filter", "--region", region, "--log-group-name", CW_LOG_GROUP, "--filter-name", mf_name],
+            dry_run=dry_run,
+        )
+    run_or_print(["systemctl", "disable", "--now", service], dry_run=dry_run)
+    if not dry_run:
+        write_state_json(
+            OBS_STATE_PATH,
+            {
+                "enabled": False,
+                "updated_at": datetime.utcnow().isoformat() + "Z",
+                "instance_id": instance_id,
+                "region": region,
+                "dashboard_name": dashboard_to_delete,
+                "alarm_names": [],
+                "metric_filter_names": [],
+                "log_group": CW_LOG_GROUP,
+            },
+        )
+    print("Observability baseline disabled.")
+    sys.exit(0)
 
 
 def parse_cert_expiry(cert_path: Path):
@@ -236,7 +636,73 @@ def cmd_cert_check() -> None:
         sys.exit(1)
 
 
-def cmd_upgrade(dry_run: bool = False) -> None:
+def perform_upgrade_rollback(metadata: dict, dry_run: bool = False, reason: str = "manual") -> int:
+    compose_dir = "/opt/npm"
+    compose_file = Path(f"{compose_dir}/docker-compose.yml")
+    previous_image = metadata.get("previous_image")
+    backup_path = metadata.get("backup_path")
+
+    if not previous_image or not backup_path:
+        print("Error: rollback metadata is missing required fields (previous_image/backup_path).")
+        return 1
+
+    backup = Path(str(backup_path))
+    if not backup.exists():
+        print(f"Error: backup archive not found: {backup}")
+        return 1
+
+    if dry_run:
+        print("Rollback dry run")
+        print("=" * 50)
+        print(f"Reason: {reason}")
+        print(f"Would set compose image to: {previous_image}")
+        print(f"Would restore backup: {backup}")
+        print("Would run health checks after restore")
+        return 0
+
+    if not compose_file.exists():
+        print(f"Error: compose file missing: {compose_file}")
+        return 1
+
+    print(f"Setting compose image back to: {previous_image}")
+    if not set_compose_image(compose_file, previous_image):
+        print("Error: failed to update compose image for rollback.")
+        return 1
+
+    print("Ensuring previous image is available...")
+    pull = run_cmd(["docker", "pull", previous_image], timeout=1800)
+    if pull.returncode != 0:
+        inspect = run_cmd(["docker", "image", "inspect", previous_image], timeout=20)
+        if inspect.returncode != 0:
+            print("Error: failed to pull previous image and it is not available locally.")
+            return 1
+
+    print(f"Restoring known-good backup: {backup}")
+    restore = run_cmd(["/usr/local/bin/npm-restore", str(backup)], timeout=3600)
+    if restore.stdout.strip():
+        print(restore.stdout.strip())
+    if restore.stderr.strip():
+        print(restore.stderr.strip())
+    if restore.returncode != 0:
+        print("Error: npm-restore failed during rollback.")
+        return 1
+
+    print("Running rollback health check...")
+    health = check_npm_health(compose_dir, timeout_seconds=90)
+    if not health.get("ok"):
+        print("Error: rollback completed but health checks failed.")
+        print(f"Container state={health.get('container_state')} http81={health.get('http_81')} httpApi={health.get('http_api')}")
+        return 1
+
+    metadata["status"] = "rolled_back"
+    metadata["rolled_back_at"] = datetime.utcnow().isoformat() + "Z"
+    write_state_json(LAST_ATTEMPT_PATH, metadata)
+    write_state_json(LAST_KNOWN_GOOD_PATH, metadata)
+    print("Rollback completed successfully.")
+    return 0
+
+
+def cmd_upgrade(dry_run: bool = False, auto_rollback: bool = False) -> None:
     """
     Safely upgrade the NPM stack using the existing compose file pins.
     """
@@ -251,13 +717,16 @@ def cmd_upgrade(dry_run: bool = False) -> None:
         "Run npm-backup",
         "docker compose pull",
         "Restart npm.service",
-        "Post-upgrade health check",
+        "Post-upgrade health check (container + HTTP + /api)",
+        "Persist rollback metadata",
     ]
 
     print("NPM Upgrade (safe, backup-first)")
     print("=" * 50)
     if dry_run:
         print("Dry run mode: no changes will be made.")
+        print("")
+        print(f"Auto rollback on health check failure: {'enabled' if auto_rollback else 'disabled'}")
         print("")
 
     # Preflight checks
@@ -307,6 +776,7 @@ def cmd_upgrade(dry_run: bool = False) -> None:
         sys.exit(0)
 
     backup_path = None
+    previous_image = get_compose_image(compose_file)
     print("Running safety backup...")
     backup_proc = run_cmd(["/usr/local/bin/npm-backup"], timeout=1800)
     if backup_proc.returncode != 0:
@@ -325,6 +795,17 @@ def cmd_upgrade(dry_run: bool = False) -> None:
     if not backup_path:
         backup_path = "unknown"
 
+    attempt = {
+        "status": "in_progress",
+        "started_at": datetime.utcnow().isoformat() + "Z",
+        "compose_file": str(compose_file),
+        "backup_path": backup_path,
+        "previous_image": previous_image,
+        "target_image": get_compose_image(compose_file),
+        "auto_rollback": bool(auto_rollback),
+    }
+    write_state_json(LAST_ATTEMPT_PATH, attempt)
+
     print("Pulling container images...")
     pull_proc = run_cmd(["docker", "compose", "pull"], cwd=compose_dir, timeout=1800)
     if pull_proc.returncode != 0:
@@ -339,45 +820,67 @@ def cmd_upgrade(dry_run: bool = False) -> None:
     restart_proc = run_cmd(["systemctl", "restart", "npm.service"], timeout=300)
     if restart_proc.returncode != 0:
         print("Error: failed to restart npm.service.")
+        attempt["status"] = "failed_restart"
+        attempt["finished_at"] = datetime.utcnow().isoformat() + "Z"
+        write_state_json(LAST_ATTEMPT_PATH, attempt)
         sys.exit(1)
 
     print("Post-upgrade health check...")
-    health_ok = False
-    try:
-        ps = run_cmd(["docker", "compose", "ps", "--format", "json"], cwd=compose_dir, timeout=10)
-        if ps.returncode == 0 and ps.stdout.strip():
-            containers = []
-            for line in ps.stdout.strip().splitlines():
-                try:
-                    obj = json.loads(line)
-                    containers.append(obj)
-                except Exception:
-                    continue
-            if any(c.get("State") == "running" for c in containers):
-                health_ok = True
-    except Exception:
-        pass
+    health = check_npm_health(compose_dir, timeout_seconds=90)
+    attempt["health"] = {
+        "container_state": health.get("container_state"),
+        "http_81": health.get("http_81"),
+        "http_api": health.get("http_api"),
+    }
 
-    if shutil.which("curl"):
-        curl = run_cmd(["curl", "-sS", "-m", "5", "http://localhost:81"], timeout=10)
-        if curl.returncode == 0:
-            health_ok = True
-
-    if not health_ok:
+    if not health.get("ok"):
+        attempt["status"] = "failed_healthcheck"
+        attempt["finished_at"] = datetime.utcnow().isoformat() + "Z"
+        write_state_json(LAST_ATTEMPT_PATH, attempt)
         print("Error: health check did not confirm NPM is running.")
-        print("Check 'docker compose ps' or systemctl status npm.service for details.")
-        print("Rollback steps:")
-        print(f"  1. sudo npm-helper restore {backup_path}")
-        print("  2. sudo systemctl restart npm.service")
+        print(f"Container state={health.get('container_state')} http81={health.get('http_81')} httpApi={health.get('http_api')}")
+        if auto_rollback:
+            print("Auto-rollback enabled; attempting rollback...")
+            rollback_rc = perform_upgrade_rollback(attempt, dry_run=False, reason="upgrade-healthcheck-failed")
+            sys.exit(1 if rollback_rc == 0 else 2)
+        print("Rollback command:")
+        print("  sudo npm-helper rollback")
         sys.exit(1)
 
     print("")
+    attempt["status"] = "success"
+    attempt["finished_at"] = datetime.utcnow().isoformat() + "Z"
+    attempt["target_image"] = get_compose_image(compose_file)
+    write_state_json(LAST_ATTEMPT_PATH, attempt)
+    write_state_json(LAST_KNOWN_GOOD_PATH, attempt)
     print("Upgrade completed.")
     print(f"Backup used: {backup_path}")
-    print("Rollback steps:")
-    print(f"  1. sudo npm-helper restore {backup_path}")
-    print("  2. sudo systemctl restart npm.service")
+    print("Rollback command:")
+    print("  sudo npm-helper rollback")
     sys.exit(0)
+
+
+def cmd_rollback(dry_run: bool = False, metadata_file: str = "") -> None:
+    """
+    Roll back to last-known-good metadata captured by upgrade workflows.
+    """
+    require_root("rollback")
+    metadata_path = metadata_file.strip() if metadata_file else LAST_ATTEMPT_PATH
+    metadata = read_state_json(metadata_path)
+    if not metadata:
+        metadata = read_state_json(LAST_KNOWN_GOOD_PATH)
+        metadata_path = LAST_KNOWN_GOOD_PATH
+
+    if not metadata:
+        print("Error: no rollback metadata found.")
+        print(f"Expected: {LAST_ATTEMPT_PATH} or {LAST_KNOWN_GOOD_PATH}")
+        sys.exit(1)
+
+    print("NPM Rollback")
+    print("=" * 50)
+    print(f"Metadata source: {metadata_path}")
+    rc = perform_upgrade_rollback(metadata, dry_run=dry_run, reason="manual")
+    sys.exit(rc)
 
 
 def cmd_backup_verify() -> None:
@@ -1289,6 +1792,40 @@ def main():
         action="store_true",
         help="Perform preflight checks and show planned steps"
     )
+    parser_upgrade.add_argument(
+        "--auto-rollback",
+        action="store_true",
+        help="Automatically roll back using last backup if health checks fail"
+    )
+
+    # rollback subcommand
+    parser_rollback = subparsers.add_parser("rollback", help="Roll back to the last known good upgrade state")
+    parser_rollback.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show rollback actions without making changes"
+    )
+    parser_rollback.add_argument(
+        "--metadata-file",
+        help="Optional path to rollback metadata JSON (default: last attempt metadata)"
+    )
+
+    # observability subcommand
+    parser_observability = subparsers.add_parser("observability", help="Manage opt-in CloudWatch baseline")
+    parser_observability.add_argument(
+        "action",
+        choices=["enable", "disable", "status"],
+        help="Enable, disable, or show observability baseline status"
+    )
+    parser_observability.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print planned actions without making changes"
+    )
+    parser_observability.add_argument(
+        "--region",
+        help="Override AWS region for CloudWatch API calls"
+    )
 
     # backup subcommand
     parser_backup = subparsers.add_parser("backup", help="Backup helper commands")
@@ -1335,7 +1872,21 @@ def main():
     elif args.command == "update-os":
         cmd_update_os()
     elif args.command == "upgrade":
-        cmd_upgrade(dry_run=getattr(args, "dry_run", False))
+        cmd_upgrade(
+            dry_run=getattr(args, "dry_run", False),
+            auto_rollback=getattr(args, "auto_rollback", False),
+        )
+    elif args.command == "rollback":
+        cmd_rollback(
+            dry_run=getattr(args, "dry_run", False),
+            metadata_file=getattr(args, "metadata_file", "") or "",
+        )
+    elif args.command == "observability":
+        cmd_observability(
+            action=getattr(args, "action", ""),
+            dry_run=getattr(args, "dry_run", False),
+            region_override=getattr(args, "region", "") or "",
+        )
     elif args.command == "backup":
         if args.backup_action == "verify":
             cmd_backup_verify()

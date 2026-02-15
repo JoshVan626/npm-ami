@@ -41,7 +41,8 @@ It’s designed for:
 - **Ops tools:**
   - `northstar` (recommended wrapper CLI)
   - `npm-helper` (show/rotate credentials, check status, admin access)
-  - `npm-helper cert-check`, `npm-helper upgrade`, `npm-helper backup verify`
+- `npm-helper cert-check`, `npm-helper upgrade`, `npm-helper rollback`, `npm-helper backup verify`
+- `northstar observability enable|disable|status` for opt-in baseline
   - `npm-backup` and `npm-restore` (local + optional S3)
   - Daily backup timer via systemd
 - **Observability:**
@@ -91,6 +92,7 @@ Diagram source: [`docs/assets/architecture.mmd`](./assets/architecture.mmd).
 - See **Troubleshooting** for first-boot recovery commands (preflight/init/post-init) and CloudWatch IAM-optional expectations.
 - See **[Monitoring & Metrics](./monitoring-and-metrics.md)** for CloudWatch logs and metrics.
 - See **[Upgrades](./upgrades.md)** for upgrading the AMI and NPM versions.
+- See **[Reliability Scorecard](./reliability-scorecard.md)** for local-only reliability artifact format and generation.
 - See **[Examples: Multi-App Setup](./examples-multi-app.md)** for a common use case.
 - Look at **[Roadmap](./roadmap.md)** for planned future enhancements.
 - Review **[Releases](../RELEASES.md)** for a repository release log scaffold.

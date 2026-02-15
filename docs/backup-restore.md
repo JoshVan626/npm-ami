@@ -316,6 +316,13 @@ If the health check fails:
 - The script **does not** automatically roll back.
 - It prints clear instructions and tells you where the `.bak-` safety directories are, so you can manually restore them.
 
+For upgrade-related recovery, prefer metadata-driven rollback:
+
+```bash
+sudo npm-helper rollback --dry-run
+sudo npm-helper rollback
+```
+
 ---
 
 ## Best practices

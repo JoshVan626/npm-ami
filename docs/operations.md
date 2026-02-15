@@ -247,8 +247,15 @@ Additional opt-in commands:
 - `sudo npm-helper upgrade --dry-run` – preflight + show planned steps
 - `sudo npm-helper upgrade` – run a backup-first upgrade using the existing compose pins
 - `sudo npm-update-container <tag>` – backup-first in-place image tag update with health check + rollback attempt
+- `sudo npm-helper upgrade --auto-rollback` – run upgrade and automatically roll back if post-upgrade health checks fail
+- `sudo npm-helper rollback --dry-run` – show rollback plan from last known good metadata
+- `sudo npm-helper rollback` – restore last known good backup + prior image metadata
 - `sudo npm-helper backup verify` – verify the latest backup archive
 - `sudo npm-helper restore --dry-run <backup>` – validate a restore without changes
+- `sudo northstar observability status` – inspect opt-in CloudWatch baseline state
+- `sudo northstar observability enable --dry-run` – preview dashboard/alarm actions and IAM expectations
+- `sudo northstar observability enable` – enable CloudWatch baseline (agent + dashboard + alarms)
+- `sudo northstar observability disable` – disable baseline and remove created CloudWatch resources
 
 ---
 
@@ -301,6 +308,26 @@ sudo npm-helper upgrade
 ```
 
 The command prints rollback steps using the latest backup and `npm-helper restore`.
+
+Automatic rollback (opt-in):
+
+```bash
+sudo npm-helper upgrade --auto-rollback
+```
+
+Manual rollback from captured metadata:
+
+```bash
+sudo npm-helper rollback --dry-run
+sudo npm-helper rollback
+```
+
+Rollback metadata files:
+
+- `/var/lib/northstar/npm/upgrade/last-attempt.json`
+- `/var/lib/northstar/npm/upgrade/last-known-good.json`
+
+Each file records backup path, previous image tag, target image tag, status, and timestamps.
 
 ---
 

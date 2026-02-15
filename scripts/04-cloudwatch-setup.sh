@@ -71,6 +71,25 @@ if [[ "$INSTALL_METHOD" == "apt" ]]; then
     chown root:root "$CONFIG_DEST"
     chmod 0644 "$CONFIG_DEST"
     echo "✓ Configuration file copied to $CONFIG_DEST"
+
+    DASHBOARD_SOURCE="$AMI_FILES/opt-aws/amazon-cloudwatch-agent/dashboard.baseline.json"
+    ALARMS_SOURCE="$AMI_FILES/opt-aws/amazon-cloudwatch-agent/alarms.baseline.json"
+    if [[ -f "$DASHBOARD_SOURCE" ]]; then
+        cp "$DASHBOARD_SOURCE" "$CONFIG_DEST_DIR/dashboard.baseline.json"
+        chown root:root "$CONFIG_DEST_DIR/dashboard.baseline.json"
+        chmod 0644 "$CONFIG_DEST_DIR/dashboard.baseline.json"
+        echo "✓ Dashboard baseline template copied to $CONFIG_DEST_DIR/dashboard.baseline.json"
+    else
+        echo "⚠ Warning: Dashboard baseline template not found at $DASHBOARD_SOURCE"
+    fi
+    if [[ -f "$ALARMS_SOURCE" ]]; then
+        cp "$ALARMS_SOURCE" "$CONFIG_DEST_DIR/alarms.baseline.json"
+        chown root:root "$CONFIG_DEST_DIR/alarms.baseline.json"
+        chmod 0644 "$CONFIG_DEST_DIR/alarms.baseline.json"
+        echo "✓ Alarm baseline template copied to $CONFIG_DEST_DIR/alarms.baseline.json"
+    else
+        echo "⚠ Warning: Alarm baseline template not found at $ALARMS_SOURCE"
+    fi
 else
     echo "ℹ Skipping configuration copy because CloudWatch Agent is not installed"
 fi

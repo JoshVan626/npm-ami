@@ -1,0 +1,88 @@
+{
+  "widgets": [
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 0,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "CPU iowait (__INSTANCE_ID__)",
+        "view": "timeSeries",
+        "stacked": false,
+        "period": 300,
+        "stat": "Average",
+        "region": "__REGION__",
+        "metrics": [
+          [
+            "__NAMESPACE__",
+            "cpu_usage_iowait",
+            "InstanceId",
+            "__INSTANCE_ID__"
+          ]
+        ]
+      }
+    },
+    {
+      "type": "metric",
+      "x": 12,
+      "y": 0,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "Memory used percent (__INSTANCE_ID__)",
+        "view": "timeSeries",
+        "stacked": false,
+        "period": 300,
+        "stat": "Average",
+        "region": "__REGION__",
+        "metrics": [
+          [
+            "__NAMESPACE__",
+            "mem_used_percent",
+            "InstanceId",
+            "__INSTANCE_ID__"
+          ]
+        ]
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 6,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "Disk used percent / (__INSTANCE_ID__)",
+        "view": "timeSeries",
+        "stacked": false,
+        "period": 300,
+        "stat": "Average",
+        "region": "__REGION__",
+        "metrics": [
+          [
+            "__NAMESPACE__",
+            "used_percent",
+            "InstanceId",
+            "__INSTANCE_ID__",
+            "path",
+            "/"
+          ]
+        ]
+      }
+    },
+    {
+      "type": "log",
+      "x": 12,
+      "y": 6,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "Recent system logs (__INSTANCE_ID__)",
+        "region": "__REGION__",
+        "query": "SOURCE '__LOG_GROUP__' | fields @timestamp, @logStream, @message | filter @logStream like /__INSTANCE_ID__/ | sort @timestamp desc | limit 50",
+        "view": "table"
+      }
+    }
+  ]
+}

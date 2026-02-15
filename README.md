@@ -26,6 +26,8 @@ This repository is **not** intended to be a general-purpose installation guide. 
 - **Automatic first-boot initialization** with secure credential generation (no secrets printed in MOTD)
 - **Built-in backup & restore tooling** (local + optional S3)
 - **Amazon CloudWatch integration** for logs and metrics
+- **Automated rollback tooling** for upgrade failures (manual and opt-in auto-rollback)
+- **One-command observability baseline** (opt-in dashboard + alarms)
 - **Security hardening** (SSH, UFW, fail2ban, sysctl) with a restricted admin plane by default
 - **Operational helper tools**:
   - `northstar` (recommended wrapper)
@@ -35,6 +37,7 @@ This repository is **not** intended to be a general-purpose installation guide. 
   - `npm-restore`
   - `npm-diagnostics`
 - `npm-support-bundle`
+- `npm-update-container` (`--rollback` supported)
 
 ---
 
@@ -181,10 +184,23 @@ See [`RELEASES.md`](RELEASES.md) for a repository release log scaffold and updat
 - **CloudWatch Metrics**
   - Namespace: `NorthstarCloudSolutions/System`
   - Memory and disk usage
+- **Opt-in observability baseline command**
+  - `sudo northstar observability enable`
+  - `sudo northstar observability disable`
+  - `sudo northstar observability status`
 
 Cost & permissions notes:
 - CloudWatch logs/metrics are optional and require an instance role/policy. CloudWatch costs vary by log volume and retention; you control retention in CloudWatch.
 - Optional S3 backups incur S3 costs and require an instance role/policy (see `docs/backup-restore.md`).
+
+## Reliability Scorecard
+
+Reliability metrics are generated locally from test/validation harnesses and written to the repository `metrics/` directory. No runtime telemetry is sent externally.
+
+- Scorecard docs: [`docs/reliability-scorecard.md`](docs/reliability-scorecard.md)
+- Example artifacts:
+  - [`metrics/reliability-scorecard.example.json`](metrics/reliability-scorecard.example.json)
+  - [`metrics/reliability-scorecard.example.md`](metrics/reliability-scorecard.example.md)
 
 ---
 

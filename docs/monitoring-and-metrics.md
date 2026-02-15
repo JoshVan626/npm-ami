@@ -14,6 +14,32 @@ Product:
 
 CloudWatch integration is **optional**. This AMI functions normally without any AWS IAM permissions. If no instance role is attached (or permissions are missing), the CloudWatch Agent may log permission errors and will not be able to publish logs/metrics.
 
+## One-command baseline (opt-in)
+
+Enable baseline dashboard + alarms + metric filters:
+
+```bash
+sudo northstar observability enable --dry-run
+sudo northstar observability enable
+```
+
+Disable baseline and remove created resources:
+
+```bash
+sudo northstar observability disable
+```
+
+Check baseline state:
+
+```bash
+sudo northstar observability status
+```
+
+Baseline artifacts shipped with the AMI:
+
+- `/opt/aws/amazon-cloudwatch-agent/dashboard.baseline.json`
+- `/opt/aws/amazon-cloudwatch-agent/alarms.baseline.json`
+
 ### What is shipped to CloudWatch by default
 
 **Logs** (CloudWatch Logs group: `/northstar-cloud-solutions/npm`):
@@ -69,6 +95,15 @@ Attach an **instance role** with a policy similar to the following. This uses `R
   ]
 }
 ```
+
+If using `northstar observability enable`, include these additional actions:
+
+- `cloudwatch:PutDashboard`
+- `cloudwatch:DeleteDashboards`
+- `cloudwatch:PutMetricAlarm`
+- `cloudwatch:DeleteAlarms`
+- `logs:PutMetricFilter`
+- `logs:DeleteMetricFilter`
 
 ### Troubleshooting permissions
 

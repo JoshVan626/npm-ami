@@ -99,9 +99,7 @@ The AMI pins NPM to a specific, tested Docker image tag for stability. The recom
 
 ### Supported in-place workflow (backup-first helper)
 
-Use the helper-backed workflow instead of manually editing compose files:
-
-1. **Run preflight (no changes):**
+1. **Backup + metadata first (recommended helper path):**
    ```bash
    sudo npm-helper upgrade --dry-run
    ```
@@ -111,7 +109,12 @@ Use the helper-backed workflow instead of manually editing compose files:
    sudo npm-helper upgrade
    ```
 
-3. **If you need to set a specific NPM image tag:**
+3. **Optional automatic rollback on health failure:**
+   ```bash
+   sudo npm-helper upgrade --auto-rollback
+   ```
+
+4. **If you need to set a specific NPM image tag:**
    ```bash
    sudo npm-update-container <new_tag>
    ```
@@ -120,7 +123,7 @@ Use the helper-backed workflow instead of manually editing compose files:
 recreates containers, performs a local health check, and attempts rollback if
 the new stack is unhealthy.
 
-4. **Verify everything works:**
+5. **Verify everything works:**
    - Check NPM admin UI is accessible
    - Verify all proxy hosts are still configured
    - Test critical proxy routes and TLS endpoints
@@ -142,6 +145,22 @@ If something breaks after an in-place update:
    ```bash
    sudo npm-helper status
    ```
+
+### Automated rollback command
+
+If an upgrade fails health checks and you did not run with `--auto-rollback`, run:
+
+```bash
+sudo npm-helper rollback --dry-run
+sudo npm-helper rollback
+```
+
+Rollback behavior:
+
+- Restores image tag from last captured metadata.
+- Restores NPM data from the pre-upgrade backup archive.
+- Re-runs health checks (container state + HTTP checks on `:81` and `/api`).
+- Never deletes backup archives.
 
 ### Staying on the pinned version
 

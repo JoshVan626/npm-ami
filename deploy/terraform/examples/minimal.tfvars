@@ -1,0 +1,11 @@
+aws_region              = "us-east-1"
+vpc_id                  = "vpc-xxxxxxxx"
+subnet_id               = "subnet-xxxxxxxx"
+key_name                = "YOUR_KEYPAIR_NAME"
+admin_cidrs             = ["203.0.113.10/32"]
+public_cidrs            = ["0.0.0.0/0"]
+instance_type           = "t3.small"
+create_instance_profile = false
+associate_eip           = false
+root_volume_size        = 16
+root_volume_type        = "gp3"

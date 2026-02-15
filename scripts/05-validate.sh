@@ -9,6 +9,15 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 AMI_FILES="$REPO_ROOT/ami-files"
 
 failures=0
+EMIT_METRICS=0
+
+for arg in "$@"; do
+  case "$arg" in
+    --emit-metrics)
+      EMIT_METRICS=1
+      ;;
+  esac
+done
 
 pass() {
   echo "PASS: $*"
@@ -89,6 +98,8 @@ require_file "ami-files/etc-systemd-system/npm-backup.timer"
 require_file "ami-files/etc-systemd-system/npm-cert-check.service"
 require_file "ami-files/etc-systemd-system/npm-cert-check.timer"
 require_file "ami-files/opt-aws/amazon-cloudwatch-agent/amazon-cloudwatch-agent.json"
+require_file "ami-files/opt-aws/amazon-cloudwatch-agent/dashboard.baseline.json"
+require_file "ami-files/opt-aws/amazon-cloudwatch-agent/alarms.baseline.json"
 require_file "ami-files/usr-local-bin/npm-backup"
 require_file "ami-files/usr-local-bin/npm-cert-check"
 require_file "ami-files/usr-local-bin/npm-restore"
@@ -97,6 +108,12 @@ require_file "ami-files/usr-local-bin/npm-preflight"
 require_file "ami-files/usr-local-bin/npm-postinit"
 require_file "ami-files/usr-local-bin/northstar"
 require_file "ami-files/etc/npm-cert-check.conf"
+require_file "scripts/07-reliability-harness.sh"
+require_file "deploy/terraform/examples/minimal.tfvars"
+require_file "deploy/terraform/examples/secure.tfvars"
+require_file "deploy/cloudformation/examples/minimal-params.json"
+require_file "deploy/cloudformation/examples/secure-params.json"
+require_file "docs/reliability-scorecard.md"
 
 # 1b) Secret scan gate (high-signal patterns only)
 SECRET_SCAN_SCRIPT="$REPO_ROOT/scripts/07-secret-scan.sh"
@@ -137,16 +154,24 @@ require_grep "$AMI_FILES/usr-local-bin/npm-helper" "subparsers\.add_parser\\([[:
 require_grep "$AMI_FILES/usr-local-bin/npm-helper" "subparsers\.add_parser\\([[:space:]]*\"diagnostics\""
 require_grep "$AMI_FILES/usr-local-bin/npm-helper" "cert-check"
 require_grep "$AMI_FILES/usr-local-bin/npm-helper" "subparsers\.add_parser\\([[:space:]]*\"upgrade\""
+require_grep "$AMI_FILES/usr-local-bin/npm-helper" "--auto-rollback"
+require_grep "$AMI_FILES/usr-local-bin/npm-helper" "subparsers\.add_parser\\([[:space:]]*\"rollback\""
+require_grep "$AMI_FILES/usr-local-bin/npm-helper" "subparsers\.add_parser\\([[:space:]]*\"observability\""
 require_grep "$AMI_FILES/usr-local-bin/npm-helper" "subparsers\.add_parser\\([[:space:]]*\"backup\""
 require_grep "$AMI_FILES/usr-local-bin/npm-helper" "subparsers\.add_parser\\([[:space:]]*\"restore\""
+require_grep "$AMI_FILES/usr-local-bin/npm-helper" "LAST_KNOWN_GOOD_PATH"
+require_grep "$AMI_FILES/usr-local-bin/npm-helper" "LAST_ATTEMPT_PATH"
 require_grep "$AMI_FILES/usr-local-bin/npm_common.py" "Security expectations"
 require_grep "$AMI_FILES/usr-local-bin/npm_common.py" "Run: sudo npm-helper show-creds"
 
 # 2c) Docs mention new commands (light checks)
 require_grep "$REPO_ROOT/docs/operations.md" "npm-helper cert-check"
 require_grep "$REPO_ROOT/docs/operations.md" "npm-helper upgrade"
+require_grep "$REPO_ROOT/docs/operations.md" "npm-helper rollback"
+require_grep "$REPO_ROOT/docs/operations.md" "northstar observability enable"
 require_grep "$REPO_ROOT/docs/backup-restore.md" "npm-helper backup verify"
 require_grep "$REPO_ROOT/docs/backup-restore.md" "npm-helper restore --dry-run"
+require_grep "$REPO_ROOT/docs/reliability-scorecard.md" "07-reliability-harness.sh"
 
 # 2d) Ensure MOTD snippets do not print secrets
 if python3 - "$AMI_FILES/usr-local-bin/npm_common.py" <<'PY'
@@ -225,6 +250,17 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 if [[ "$failures" -eq 0 ]]; then
   echo "✓ Validation PASSED"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  if [[ "$EMIT_METRICS" -eq 1 ]]; then
+    if [[ -x "$REPO_ROOT/scripts/07-reliability-harness.sh" ]]; then
+      if "$REPO_ROOT/scripts/07-reliability-harness.sh" --output-dir "$REPO_ROOT/metrics" >/dev/null 2>&1; then
+        pass "reliability artifacts generated in metrics/"
+      else
+        warn "reliability harness returned non-zero; continuing"
+      fi
+    else
+      warn "scripts/07-reliability-harness.sh is not executable; skipping metrics generation"
+    fi
+  fi
   exit 0
 else
   echo "✗ Validation FAILED ($failures issue(s))"

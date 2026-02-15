@@ -1,0 +1,104 @@
+{
+  "metric_filters": [
+    {
+      "name": "northstar-backup-failure-count",
+      "log_group": "__LOG_GROUP__",
+      "pattern": "\"NORTHSTAR_BACKUP status=failure\"",
+      "metric_namespace": "NorthstarCloudSolutions/Operational",
+      "metric_name": "backup_failure_count",
+      "metric_value": "1",
+      "default_value": "0"
+    }
+  ],
+  "alarms": [
+    {
+      "name": "northstar-npm-__INSTANCE_ID__-disk-high",
+      "description": "Root disk usage is high for NPM instance",
+      "namespace": "__NAMESPACE__",
+      "metric_name": "used_percent",
+      "statistic": "Average",
+      "period": 300,
+      "evaluation_periods": 3,
+      "threshold": 85,
+      "comparison_operator": "GreaterThanOrEqualToThreshold",
+      "treat_missing_data": "missing",
+      "dimensions": [
+        {
+          "name": "InstanceId",
+          "value": "__INSTANCE_ID__"
+        },
+        {
+          "name": "path",
+          "value": "/"
+        }
+      ]
+    },
+    {
+      "name": "northstar-npm-__INSTANCE_ID__-cpu-iowait-high",
+      "description": "CPU iowait is sustained and high",
+      "namespace": "__NAMESPACE__",
+      "metric_name": "cpu_usage_iowait",
+      "statistic": "Average",
+      "period": 300,
+      "evaluation_periods": 3,
+      "threshold": 40,
+      "comparison_operator": "GreaterThanOrEqualToThreshold",
+      "treat_missing_data": "missing",
+      "dimensions": [
+        {
+          "name": "InstanceId",
+          "value": "__INSTANCE_ID__"
+        }
+      ]
+    },
+    {
+      "name": "northstar-npm-__INSTANCE_ID__-mem-high",
+      "description": "Memory usage is sustained and high",
+      "namespace": "__NAMESPACE__",
+      "metric_name": "mem_used_percent",
+      "statistic": "Average",
+      "period": 300,
+      "evaluation_periods": 3,
+      "threshold": 90,
+      "comparison_operator": "GreaterThanOrEqualToThreshold",
+      "treat_missing_data": "missing",
+      "dimensions": [
+        {
+          "name": "InstanceId",
+          "value": "__INSTANCE_ID__"
+        }
+      ]
+    },
+    {
+      "name": "northstar-npm-__INSTANCE_ID__-backup-failure",
+      "description": "Backup script has emitted failure events",
+      "namespace": "NorthstarCloudSolutions/Operational",
+      "metric_name": "backup_failure_count",
+      "statistic": "Sum",
+      "period": 300,
+      "evaluation_periods": 1,
+      "threshold": 1,
+      "comparison_operator": "GreaterThanOrEqualToThreshold",
+      "treat_missing_data": "notBreaching",
+      "dimensions": []
+    },
+    {
+      "name": "northstar-npm-__INSTANCE_ID__-npm-unhealthy",
+      "description": "EC2 instance status check failed (NPM unhealthy proxy signal)",
+      "namespace": "AWS/EC2",
+      "metric_name": "StatusCheckFailed",
+      "statistic": "Maximum",
+      "period": 300,
+      "evaluation_periods": 2,
+      "threshold": 1,
+      "comparison_operator": "GreaterThanOrEqualToThreshold",
+      "treat_missing_data": "notBreaching",
+      "dimensions": [
+        {
+          "name": "InstanceId",
+          "value": "__INSTANCE_ID__"
+        }
+      ]
+    }
+  ]
+}

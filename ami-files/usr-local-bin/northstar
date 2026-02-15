@@ -11,6 +11,9 @@ Commands:
   status                     Show system and service status
   creds [--yes]              Show stored admin credentials (root only)
   admin-access <action>      Manage admin UI allowlist (enable|disable|status)
+  upgrade [--dry-run]        Run backup-first upgrade workflow
+  rollback [--dry-run]       Roll back using last known good metadata
+  observability <action>     CloudWatch baseline (enable|disable|status)
   backup                     Run npm-backup
   restore                    Run npm-restore
   support-bundle             Run npm-support-bundle
@@ -38,6 +41,15 @@ case "$cmd" in
     ;;
   admin-access)
     exec npm-helper admin-access "$@"
+    ;;
+  upgrade)
+    exec npm-helper upgrade "$@"
+    ;;
+  rollback)
+    exec npm-helper rollback "$@"
+    ;;
+  observability)
+    exec npm-helper observability "$@"
     ;;
   backup)
     exec npm-backup "$@"

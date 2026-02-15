@@ -85,6 +85,8 @@ Once the instance is running:
    - `sudo npm-helper backup verify`
    - `sudo npm-helper cert-check`
    - `sudo npm-helper upgrade --dry-run`
+   - `sudo npm-helper rollback --dry-run`
+   - `sudo northstar observability enable --dry-run`
 
 ---
 

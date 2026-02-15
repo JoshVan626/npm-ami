@@ -167,6 +167,15 @@ sudo ls -1 /var/lib/northstar/npm/backup-last-*
 sudo cat /var/lib/northstar/npm/backup-last-success
 ```
 
+### Upgrade rollback flow
+
+```bash
+sudo npm-helper upgrade --dry-run
+sudo npm-helper rollback --dry-run
+sudo test -f /var/lib/northstar/npm/upgrade/last-attempt.json && echo "rollback metadata present"
+sudo test -f /var/lib/northstar/npm/upgrade/last-known-good.json && echo "lkg metadata present"
+```
+
 ### CloudWatch behavior (IAM optional)
 
 Test A (no IAM role attached): app should still work; agent may log permission errors.
@@ -180,6 +189,13 @@ Test B (IAM role attached): confirm log group and namespace names match docs.
 
 - Log group: `/northstar-cloud-solutions/npm`
 - Namespace: `NorthstarCloudSolutions/System`
+
+Opt-in baseline commands:
+
+```bash
+sudo northstar observability status
+sudo northstar observability enable --dry-run
+```
 
 ### Security expectations quick checks
 
@@ -378,6 +394,15 @@ After running cleanup and creating the AMI:
 - [ ] Disk usage is reasonable (check with `df -h`)
 - [ ] No excessive CPU usage at idle
 - [ ] CloudWatch metrics show normal resource usage
+
+---
+
+## Reliability Scorecard Artifact Validation
+
+- [ ] `scripts/07-reliability-harness.sh --output-dir metrics` runs successfully
+- [ ] `metrics/reliability-scorecard-latest.json` is generated and valid JSON
+- [ ] `metrics/reliability-scorecard-latest.md` is generated
+- [ ] No external telemetry is sent; artifacts are local files only
 
 ---
 

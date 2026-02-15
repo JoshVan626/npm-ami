@@ -14,10 +14,18 @@ BACKUP_SCRIPT="/usr/local/bin/npm-backup"
 IMAGE_REPO="jc21/nginx-proxy-manager"
 HEALTHCHECK_URL="http://localhost:81"
 HEALTHCHECK_TIMEOUT_S=60
+UPGRADE_STATE_DIR="/var/lib/northstar/npm/upgrade"
+LAST_KNOWN_GOOD_PATH="${UPGRADE_STATE_DIR}/last-known-good.json"
+LAST_ATTEMPT_PATH="${UPGRADE_STATE_DIR}/last-attempt.json"
+BACKUP_PATH_CAPTURED="unknown"
 
 usage() {
-  echo "Usage: $0 <new_tag>"
-  echo "Example: $0 2.14.0"
+  echo "Usage:"
+  echo "  $0 <new_tag>"
+  echo "  $0 --rollback [--metadata-file <path>] [--dry-run]"
+  echo "Examples:"
+  echo "  $0 2.14.0"
+  echo "  $0 --rollback"
 }
 
 require_root() {
@@ -239,8 +247,54 @@ run_backup() {
     exit 1
   fi
   echo "Step 1/4: Running safety backup (required): $BACKUP_SCRIPT"
-  "$BACKUP_SCRIPT"
+  echo "Running safety backup: $BACKUP_SCRIPT"
+  local output
+  output="$("$BACKUP_SCRIPT" 2>&1)"
+  echo "$output"
+  BACKUP_PATH_CAPTURED="$(awk '/NORTHSTAR_BACKUP/ && /path=/{for(i=1;i<=NF;i++){if($i ~ /^path=/){sub(/^path=/,"",$i);print $i; exit}}}' <<<"$output")"
+  if [[ -z "$BACKUP_PATH_CAPTURED" ]]; then
+    BACKUP_PATH_CAPTURED="unknown"
+  fi
   echo "Safety backup completed."
+}
+
+ensure_upgrade_state_dir() {
+  mkdir -p "$UPGRADE_STATE_DIR"
+  chmod 0750 "$UPGRADE_STATE_DIR" || true
+}
+
+write_metadata() {
+  local file="$1"
+  local status="$2"
+  local previous_image="$3"
+  local target_image="$4"
+  local backup_path="$5"
+  ensure_upgrade_state_dir
+  python3 - "$file" "$status" "$previous_image" "$target_image" "$backup_path" <<'PY'
+import json
+import os
+import sys
+from datetime import datetime, timezone
+
+path, status, previous_image, target_image, backup_path = sys.argv[1:6]
+payload = {
+    "status": status,
+    "timestamp": datetime.now(timezone.utc).isoformat(),
+    "previous_image": previous_image,
+    "target_image": target_image,
+    "backup_path": backup_path,
+    "source": "npm-update-container",
+}
+tmp = path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as f:
+    json.dump(payload, f, indent=2, sort_keys=True)
+    f.write("\n")
+os.replace(tmp, path)
+try:
+    os.chmod(path, 0o640)
+except Exception:
+    pass
+PY
 }
 
 health_check() {
@@ -265,12 +319,46 @@ health_check() {
 main() {
   require_root
 
+  local rollback_mode=0 metadata_file="$LAST_ATTEMPT_PATH" dry_run=0
+  local arg
+  while [[ $# -gt 0 ]]; do
+    arg="$1"
+    case "$arg" in
+      --rollback)
+        rollback_mode=1
+        shift
+        ;;
+      --metadata-file)
+        metadata_file="${2:-}"
+        shift 2
+        ;;
+      --dry-run)
+        dry_run=1
+        shift
+        ;;
+      -h|--help|help)
+        usage
+        exit 0
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+
+  if [[ "$rollback_mode" -eq 1 ]]; then
+    if [[ "$dry_run" -eq 1 ]]; then
+      exec npm-helper rollback --dry-run --metadata-file "$metadata_file"
+    fi
+    exec npm-helper rollback --metadata-file "$metadata_file"
+  fi
+
   if [[ $# -ne 1 ]]; then
     usage >&2
     exit 1
   fi
 
-  local new_tag new_image current_image ts compose_backup
+  local new_tag new_image current_image ts compose_backup old_image
   new_tag="$1"
   validate_tag "$new_tag"
   new_image="${IMAGE_REPO}:${new_tag}"
@@ -293,6 +381,7 @@ main() {
 
   run_backup
 
+  old_image="$(python_compose_get_image "$COMPOSE_FILE" 2>/dev/null || true)"
   ts="$(date -u +%Y%m%dT%H%M%SZ)"
   compose_backup="${COMPOSE_FILE}.bak.${ts}"
   cp -a "$COMPOSE_FILE" "$compose_backup"
@@ -307,16 +396,19 @@ main() {
 
   echo "Waiting for service health on $HEALTHCHECK_URL (timeout ${HEALTHCHECK_TIMEOUT_S}s)..."
   if health_check; then
+    write_metadata "$LAST_ATTEMPT_PATH" "success" "$old_image" "$new_image" "$BACKUP_PATH_CAPTURED"
+    write_metadata "$LAST_KNOWN_GOOD_PATH" "success" "$old_image" "$new_image" "$BACKUP_PATH_CAPTURED"
     echo "Update successful."
     echo "  Previous image: $current_image"
     echo "  Current image:  $new_image"
-    echo "If you need to revert later, restore the last known-good backup with:"
-    echo "  sudo npm-helper restore /var/backups/npm-YYYYMMDDHHMMSS.tar.gz"
+    echo "If you need to revert later:"
+    echo "  sudo npm-helper rollback"
     exit 0
   fi
 
   echo "Health check failed; rolling back to previous compose file..." >&2
   old_image="$(python_compose_get_image "$compose_backup" 2>/dev/null || true)"
+  write_metadata "$LAST_ATTEMPT_PATH" "failed_healthcheck" "$old_image" "$new_image" "$BACKUP_PATH_CAPTURED"
   if [[ -z "${old_image}" ]]; then
     echo "Rollback error: could not determine previous image from backup compose file." >&2
     exit 1
@@ -335,6 +427,7 @@ main() {
   ( cd "$COMPOSE_DIR" && docker compose up -d )
 
   if health_check; then
+    write_metadata "$LAST_KNOWN_GOOD_PATH" "rolled_back" "$old_image" "$new_image" "$BACKUP_PATH_CAPTURED"
     echo "Rollback successful." >&2
   else
     echo "Rollback attempted but service is still unhealthy; investigate logs." >&2
