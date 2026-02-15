@@ -257,4 +257,92 @@ echo "Next steps:"
 echo "  - Run 03-security-hardening.sh to configure security settings"
 echo ""
 
+# Step 7: Write build manifest for support and reproducibility
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Writing build manifest..."
+
+BUILD_MANIFEST_DIR="/opt/northstar"
+BUILD_MANIFEST_PATH="$BUILD_MANIFEST_DIR/build-manifest.txt"
+
+mkdir -p "$BUILD_MANIFEST_DIR"
+
+BUILD_TIMESTAMP_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ" || echo "N/A")"
+KERNEL_VERSION="$(uname -r || echo "N/A")"
+
+DOCKER_VERSION_VALUE="N/A"
+if command -v docker >/dev/null 2>&1; then
+    # Capture docker version without failing the build if the command errors.
+    if docker --version >/dev/null 2>&1; then
+        DOCKER_VERSION_VALUE="$(docker --version 2>/dev/null || echo "docker --version (error)")"
+    fi
+fi
+
+OS_RELEASE_CONTENT="N/A"
+if [[ -f /etc/os-release ]]; then
+    OS_RELEASE_CONTENT="$(cat /etc/os-release 2>/dev/null || echo "N/A")"
+elif command -v lsb_release >/dev/null 2>&1; then
+    OS_RELEASE_CONTENT="$(lsb_release -a 2>/dev/null || echo "N/A")"
+fi
+
+NPM_IMAGE_TAGS_VALUE="N/A"
+if [[ -f /opt/npm/docker-compose.yml ]]; then
+    # Best-effort extraction of image tags from docker-compose.yml.
+    if NPM_IMAGE_TAGS_PARSED="$(grep -E '^[[:space:]]*image:[[:space:]]+' /opt/npm/docker-compose.yml 2>/dev/null | awk '{print $2}' | paste -sd ', ' - 2>/dev/null)"; then
+        if [[ -n "${NPM_IMAGE_TAGS_PARSED:-}" ]]; then
+            NPM_IMAGE_TAGS_VALUE="$NPM_IMAGE_TAGS_PARSED"
+        fi
+    fi
+fi
+
+DPKG_SNAPSHOT_TEMP=""
+DPKG_SNAPSHOT_OK=0
+if command -v dpkg-query >/dev/null 2>&1; then
+    DPKG_SNAPSHOT_TEMP="$(mktemp /tmp/npm-dpkg-snapshot.XXXXXX || echo "")"
+    if [[ -n "$DPKG_SNAPSHOT_TEMP" ]]; then
+        if dpkg-query -W -f='${Package} ${Version}\n' >"$DPKG_SNAPSHOT_TEMP" 2>/dev/null; then
+            DPKG_SNAPSHOT_OK=1
+        fi
+    fi
+fi
+
+{
+    echo "Nginx Proxy Manager (NPM) for AWS — Build Manifest"
+    echo "Timestamp (UTC): $BUILD_TIMESTAMP_UTC"
+    echo ""
+    echo "== OS Release =="
+    echo "$OS_RELEASE_CONTENT"
+    echo ""
+    echo "== Kernel Version =="
+    echo "$KERNEL_VERSION"
+    echo ""
+    echo "== Docker Version =="
+    echo "$DOCKER_VERSION_VALUE"
+    echo ""
+    echo "== NPM Container Image Tags (best-effort) =="
+    echo "$NPM_IMAGE_TAGS_VALUE"
+    echo ""
+    echo "== dpkg Package Snapshot =="
+    if [[ "$DPKG_SNAPSHOT_OK" -eq 1 && -n "$DPKG_SNAPSHOT_TEMP" ]]; then
+        cat "$DPKG_SNAPSHOT_TEMP"
+    else
+        echo "N/A (dpkg-query snapshot unavailable)"
+    fi
+} >"$BUILD_MANIFEST_PATH" 2>/dev/null || echo "⚠ Warning: Failed to write build manifest to $BUILD_MANIFEST_PATH"
+
+if [[ -f "$BUILD_MANIFEST_PATH" ]]; then
+    chown root:root "$BUILD_MANIFEST_PATH" 2>/dev/null || true
+    chmod 0644 "$BUILD_MANIFEST_PATH" 2>/dev/null || true
+    echo "✓ Build manifest written to $BUILD_MANIFEST_PATH"
+else
+    echo "⚠ Warning: Build manifest file not found at $BUILD_MANIFEST_PATH (non-fatal)"
+fi
+
+if [[ "$DPKG_SNAPSHOT_OK" -eq 1 && -n "$DPKG_SNAPSHOT_TEMP" ]]; then
+    rm -f "$DPKG_SNAPSHOT_TEMP" 2>/dev/null || true
+fi
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Build manifest step completed (best-effort)."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
 exit 0

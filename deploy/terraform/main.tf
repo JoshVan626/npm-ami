@@ -262,6 +262,18 @@ resource "aws_instance" "npm" {
   vpc_security_group_ids = [aws_security_group.npm.id]
   iam_instance_profile   = aws_iam_instance_profile.instance.name
 
+  # Enforce IMDSv2-only access to instance metadata.
+  metadata_options {
+    http_tokens              = "required"
+    http_put_response_hop_limit = 2
+  }
+
+  # Ensure the root EBS volume is encrypted by default while preserving
+  # size/type and other characteristics inherited from the AMI.
+  root_block_device {
+    encrypted = true
+  }
+
   tags = {
     Name = "npm-hardened-edition"
   }

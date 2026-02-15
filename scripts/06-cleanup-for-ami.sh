@@ -12,10 +12,27 @@ echo "⚠ WARNING: This script should ONLY be run right before creating an AMI s
 echo "           It will remove instance-specific data, logs, and history."
 echo "           Do NOT run this on a production instance you plan to continue using."
 echo ""
-read -p "Are you sure you want to proceed? (type 'yes' to continue): " confirmation
-if [[ "$confirmation" != "yes" ]]; then
-    echo "Cleanup cancelled."
-    exit 0
+AUTO_CONFIRM=0
+
+# Non-interactive gate: allow explicit opt-in via env var or flag.
+if [[ "${NORTHSTAR_NONINTERACTIVE:-0}" == "1" ]]; then
+    AUTO_CONFIRM=1
+fi
+
+for arg in "$@"; do
+    if [[ "$arg" == "--yes" || "$arg" == "-y" ]]; then
+        AUTO_CONFIRM=1
+    fi
+done
+
+if [[ "$AUTO_CONFIRM" -ne 1 ]]; then
+    read -p "Are you sure you want to proceed? (type 'yes' to continue): " confirmation
+    if [[ "$confirmation" != "yes" ]]; then
+        echo "Cleanup cancelled."
+        exit 0
+    fi
+else
+    echo "Non-interactive mode enabled (NORTHSTAR_NONINTERACTIVE=1 or --yes); skipping confirmation prompt."
 fi
 echo ""
 

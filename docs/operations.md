@@ -327,6 +327,11 @@ This is useful for:
 - System service failures
 - General OS-level troubleshooting
 
+If the agent is not installed (for example, because the `amazon-cloudwatch-agent` apt
+package was unavailable during AMI bake), the application will continue to function
+normally without CloudWatch logs/metrics. You can install the agent later using apt
+on running instances if needed.
+
 ---
 
 ## Where NPM keeps its data
@@ -341,6 +346,17 @@ These paths are:
 - Mounted into the NPM container
 - Included in backup archives (`npm-backup` / `npm-restore`)
 - Preserved across instance reboots
+
+For support and reproducibility, a build manifest is written at bake time to:
+
+```bash
+/opt/northstar/build-manifest.txt
+```
+
+This manifest includes the build timestamp (UTC), OS release information, kernel
+version, Docker version (if available), best-effort NPM container image tags, and a
+dpkg package snapshot. It is owned by `root:root` and world-readable (`0644`) and
+does not contain secrets.
 
 ---
 

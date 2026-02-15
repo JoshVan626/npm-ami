@@ -163,6 +163,16 @@ See [`RELEASES.md`](RELEASES.md) for a repository release log scaffold and updat
 
 ---
 
+## Security Maintenance Policy
+
+- The AMI base OS and Docker/NPM stack are rebuilt on a regular cadence (for example, monthly or as practical) to incorporate upstream security updates and tested changes.
+- Critical security issues in the base OS or pinned NPM container image may trigger out-of-band AMI refreshes when practical, but are not guaranteed on a specific timetable.
+- Older AMI versions are not guaranteed to receive fixes; customers should prefer the latest Marketplace version and periodically refresh instances from newer images.
+- Between AMI releases, OS-level security updates rely on Ubuntu's `unattended-upgrades` and any additional patching policies you apply to your instances.
+- All security maintenance and support are provided on a best-effort basis; no formal SLA or uptime guarantee is offered.
+
+---
+
 ## Observability
 
 - **CloudWatch Logs**
@@ -220,6 +230,18 @@ When contacting support, please include:
 - Relevant CloudWatch log excerpts
 
 For common recovery commands and first-boot troubleshooting, see [`docs/troubleshooting.md`](docs/troubleshooting.md).
+
+---
+
+## Opening a Support Request
+
+To help us resolve issues quickly and safely, please include the following when opening a support request:
+
+- Run `sudo npm-support-bundle` and attach the resulting archive or clearly specify the path it was written to (for example, under `/var/backups`).
+- Run `sudo npm-helper diagnostics --json` and include the JSON output as an attachment or paste (after reviewing for any sensitive information).
+- Include relevant, non-sensitive excerpts from `/opt/northstar/build-manifest.txt` such as OS version, kernel version, Docker version, and NPM container image tag.
+- Provide a concise problem description: what you expected, what actually happened, when it started, and any recent changes (upgrades, security group changes, backup/restore operations, etc.).
+- Do **not** include secrets (passwords, private keys, certificate private key files, or full credentials) in tickets or email.
 
 ---
 

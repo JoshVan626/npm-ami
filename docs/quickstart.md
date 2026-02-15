@@ -99,7 +99,12 @@ Once the instance is running:
 2. Log in with the **username and password** from the credentials file.
 3. You’re now in the NPM admin interface.
 
-**Secure admin plane tip:** Do not expose port `81` to the internet. Use an SSH tunnel or allowlist a single trusted IP temporarily:
+**Secure admin plane tip (two gates):**
+
+- **Gate 1 – Security Group:** your EC2 security group must allow your source IP/CIDR to port `81/tcp` (never `0.0.0.0/0` for admin UI).
+- **Gate 2 – Instance firewall:** UFW on the instance also restricts port 81; use `npm-helper admin-access` to allowlist your IP or use an SSH tunnel.
+
+Do not expose port `81` to the internet. Use an SSH tunnel or allowlist a single trusted IP temporarily:
 
 ```bash
 sudo npm-helper admin-access enable --cidr <your-ip>/32
