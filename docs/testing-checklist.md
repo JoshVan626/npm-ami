@@ -176,6 +176,14 @@ sudo test -f /var/lib/northstar/npm/upgrade/last-attempt.json && echo "rollback 
 sudo test -f /var/lib/northstar/npm/upgrade/last-known-good.json && echo "lkg metadata present"
 ```
 
+### Restore verification report
+
+```bash
+latest_backup="$(ls -1t /var/backups/npm-*.tar.gz | head -n 1)"
+sudo npm-helper restore --verify "$latest_backup"
+sudo test -f /var/lib/northstar/npm/restore-verify-latest.json && echo "restore verify report present"
+```
+
 ### CloudWatch behavior (IAM optional)
 
 Test A (no IAM role attached): app should still work; agent may log permission errors.
@@ -402,6 +410,8 @@ After running cleanup and creating the AMI:
 - [ ] `scripts/07-reliability-harness.sh --output-dir metrics` runs successfully
 - [ ] `metrics/reliability-scorecard-latest.json` is generated and valid JSON
 - [ ] `metrics/reliability-scorecard-latest.md` is generated
+- [ ] `metrics/restore-verify-report-latest.json` is generated when backup scenarios run
+- [ ] Scorecard JSON includes `run_metadata.scenario_count`, `passed`, `failed`, `warned`, `skipped`
 - [ ] No external telemetry is sent; artifacts are local files only
 
 ---

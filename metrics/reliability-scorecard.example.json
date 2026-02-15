@@ -1,6 +1,44 @@
 {
   "generated_at_utc": "2026-02-15T00:00:00Z",
-  "source": "example",
+  "source": "example_run_driven",
+  "run_metadata": {
+    "scenario_count": 4,
+    "passed": 3,
+    "failed": 0,
+    "warned": 1,
+    "skipped": 0,
+    "total_duration_seconds": 16.2
+  },
+  "scenarios": [
+    {
+      "name": "backup_verify",
+      "status": "warn",
+      "exit_code": 2,
+      "duration_seconds": 2.1,
+      "command": "/usr/local/bin/npm-helper backup verify"
+    },
+    {
+      "name": "upgrade_dry_run",
+      "status": "pass",
+      "exit_code": 0,
+      "duration_seconds": 5.4,
+      "command": "/usr/local/bin/npm-helper upgrade --dry-run"
+    },
+    {
+      "name": "restore_dry_run",
+      "status": "pass",
+      "exit_code": 0,
+      "duration_seconds": 4.3,
+      "command": "/usr/local/bin/npm-helper restore --dry-run /var/backups/npm-20260215010000.tar.gz"
+    },
+    {
+      "name": "restore_verify_report",
+      "status": "pass",
+      "exit_code": 0,
+      "duration_seconds": 4.4,
+      "command": "/usr/local/bin/npm-helper restore --verify --report-file metrics/restore-verify-report-latest.json /var/backups/npm-20260215010000.tar.gz"
+    }
+  ],
   "first_boot": {
     "total": 10,
     "success": 10,

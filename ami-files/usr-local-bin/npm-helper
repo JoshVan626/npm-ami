@@ -69,6 +69,7 @@ BACKUP_STATE_DIR = "/var/lib/northstar/npm"
 SENTINEL_LAST_RUN = f"{BACKUP_STATE_DIR}/backup-last-run"
 SENTINEL_LAST_SUCCESS = f"{BACKUP_STATE_DIR}/backup-last-success"
 SENTINEL_LAST_FAILURE = f"{BACKUP_STATE_DIR}/backup-last-failure"
+RESTORE_VERIFY_REPORT_DEFAULT = f"{BACKUP_STATE_DIR}/restore-verify-latest.json"
 UPGRADE_STATE_DIR = f"{BACKUP_STATE_DIR}/upgrade"
 LAST_KNOWN_GOOD_PATH = f"{UPGRADE_STATE_DIR}/last-known-good.json"
 LAST_ATTEMPT_PATH = f"{UPGRADE_STATE_DIR}/last-attempt.json"
@@ -951,7 +952,52 @@ def cmd_backup_verify() -> None:
     sys.exit(0)
 
 
-def cmd_restore(backup_path: str, dry_run: bool = False) -> None:
+def analyze_backup_archive(backup: Path) -> dict:
+    min_size_bytes = 1024 * 1024  # 1 MiB
+    errors = []
+    warnings = []
+    targets = []
+    entries_count = 0
+
+    if not backup.exists():
+        errors.append(f"backup archive not found: {backup}")
+        return {"errors": errors, "warnings": warnings, "targets": targets, "entries_count": entries_count}
+
+    if backup.stat().st_size < min_size_bytes:
+        errors.append(f"backup file is smaller than expected ({backup.stat().st_size} bytes)")
+
+    tar_list = run_cmd(["tar", "-tzf", str(backup)], timeout=30)
+    if tar_list.returncode != 0:
+        errors.append("unable to read backup archive (tar -tzf failed)")
+        return {"errors": errors, "warnings": warnings, "targets": targets, "entries_count": entries_count}
+
+    lines = [line.strip() for line in tar_list.stdout.splitlines() if line.strip()]
+    entries_count = len(lines)
+    has_data = any(line.startswith("opt/npm/data/") for line in lines)
+    has_letsencrypt = any(line.startswith("opt/npm/letsencrypt/") for line in lines)
+    if has_data:
+        targets.append("/opt/npm/data")
+    if has_letsencrypt:
+        targets.append("/opt/npm/letsencrypt")
+    if not has_data:
+        errors.append("missing opt/npm/data in archive")
+    if not has_letsencrypt:
+        warnings.append("missing opt/npm/letsencrypt in archive (no certs yet?)")
+
+    return {
+        "errors": errors,
+        "warnings": warnings,
+        "targets": targets,
+        "entries_count": entries_count,
+    }
+
+
+def cmd_restore(
+    backup_path: str,
+    dry_run: bool = False,
+    verify: bool = False,
+    report_file: str = RESTORE_VERIFY_REPORT_DEFAULT,
+) -> None:
     """
     Restore a backup archive. Dry-run validates without changes.
     """
@@ -960,24 +1006,61 @@ def cmd_restore(backup_path: str, dry_run: bool = False) -> None:
         print("Error: backup archive path required.")
         sys.exit(1)
     backup = Path(backup_path)
-    if not backup.exists():
-        print(f"Error: backup archive not found: {backup}")
-        sys.exit(1)
+    start = time.time()
+    analyzed = analyze_backup_archive(backup)
+    errors = analyzed.get("errors", [])
+    warnings = analyzed.get("warnings", [])
+    targets = analyzed.get("targets", [])
+
+    if verify:
+        report = {
+            "generated_at_utc": datetime.utcnow().isoformat() + "Z",
+            "mode": "restore_verify",
+            "backup_path": str(backup),
+            "backup_size_bytes": backup.stat().st_size if backup.exists() else None,
+            "entries_count": analyzed.get("entries_count", 0),
+            "targets": targets,
+            "errors": errors,
+            "warnings": warnings,
+            "status": "pass" if not errors else "fail",
+            "duration_seconds": round(time.time() - start, 3),
+        }
+        report_path = Path(report_file)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(report_path, "w", encoding="utf-8") as f:
+            json.dump(report, f, indent=2, sort_keys=True)
+            f.write("\n")
+        try:
+            os.chmod(report_path, 0o640)
+        except Exception:
+            pass
+
+        print("Restore verification report")
+        print("=" * 50)
+        print(f"Backup archive: {backup}")
+        print(f"Report file: {report_path}")
+        if targets:
+            print("Targets detected:")
+            for target in targets:
+                print(f" - {target}")
+        if warnings:
+            print("Warnings:")
+            for warn in warnings:
+                print(f" - {warn}")
+        if errors:
+            print("Issues:")
+            for issue in errors:
+                print(f" - {issue}")
+            print("Summary: RED")
+            sys.exit(1)
+        print("Summary: GREEN")
+        sys.exit(0)
 
     if dry_run:
-        tar_list = run_cmd(["tar", "-tzf", str(backup)], timeout=30)
-        if tar_list.returncode != 0:
-            print("Error: unable to read backup archive (tar -tzf failed).")
-            sys.exit(1)
-        lines = tar_list.stdout.splitlines()
-        targets = []
-        if any(line.startswith("opt/npm/data/") for line in lines):
-            targets.append("/opt/npm/data")
-        if any(line.startswith("opt/npm/letsencrypt/") for line in lines):
-            targets.append("/opt/npm/letsencrypt")
-
-        if not targets:
-            print("Error: backup archive does not contain expected NPM paths.")
+        if errors:
+            print("Error: backup archive does not contain expected NPM paths or failed validation.")
+            for issue in errors:
+                print(f" - {issue}")
             sys.exit(1)
 
         print("Restore dry run")
@@ -987,6 +1070,12 @@ def cmd_restore(backup_path: str, dry_run: bool = False) -> None:
         for target in targets:
             print(f" - {target}")
         sys.exit(0)
+
+    if errors:
+        print("Error: restore pre-checks failed:")
+        for issue in errors:
+            print(f" - {issue}")
+        sys.exit(1)
 
     result = subprocess.run(["/usr/local/bin/npm-restore", str(backup)], check=False)
     sys.exit(result.returncode)
@@ -1840,6 +1929,16 @@ def main():
         help="Validate archive contents without restoring"
     )
     parser_restore.add_argument(
+        "--verify",
+        action="store_true",
+        help="Generate machine-readable restore verification report"
+    )
+    parser_restore.add_argument(
+        "--report-file",
+        default=RESTORE_VERIFY_REPORT_DEFAULT,
+        help=f"Verification report path (default: {RESTORE_VERIFY_REPORT_DEFAULT})"
+    )
+    parser_restore.add_argument(
         "backup_path",
         nargs="?",
         help="Backup archive path"
@@ -1894,7 +1993,12 @@ def main():
             print("Error: invalid backup action.")
             sys.exit(1)
     elif args.command == "restore":
-        cmd_restore(getattr(args, "backup_path", None), dry_run=getattr(args, "dry_run", False))
+        cmd_restore(
+            getattr(args, "backup_path", None),
+            dry_run=getattr(args, "dry_run", False),
+            verify=getattr(args, "verify", False),
+            report_file=getattr(args, "report_file", RESTORE_VERIFY_REPORT_DEFAULT),
+        )
     elif args.command == "diagnostics":
         cmd_diagnostics(json_mode=getattr(args, "json", False))
     else:

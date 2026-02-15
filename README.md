@@ -163,6 +163,7 @@ Northstar Cloud Solutions LLC is responsible for:
 **Release notes and AMI IDs:** Release notes and AMI IDs are managed outside this repository (AWS Marketplace metadata and internal release notes).
 
 See [`RELEASES.md`](RELEASES.md) for a repository release log scaffold and update guidance.
+Use the compatibility matrix in `RELEASES.md` to map AMI version to pinned NPM image and supported upgrade/rollback commands.
 
 ---
 

@@ -162,6 +162,28 @@ sudo npm-helper restore --dry-run /var/backups/npm-YYYYMMDDHHMMSS.tar.gz
 This prints what would be restored and fails safely if the archive does not
 contain expected NPM paths.
 
+## Restore verification report (machine-readable)
+
+Generate a verification report for a backup archive without performing restore writes:
+
+```bash
+sudo npm-helper restore --verify /var/backups/npm-YYYYMMDDHHMMSS.tar.gz
+```
+
+Default report location:
+
+```text
+/var/lib/northstar/npm/restore-verify-latest.json
+```
+
+Custom report location:
+
+```bash
+sudo npm-helper restore --verify --report-file /tmp/restore-verify.json /var/backups/npm-YYYYMMDDHHMMSS.tar.gz
+```
+
+The report includes backup path, detected restore targets, warnings/errors, and elapsed duration.
+
 ---
 
 ## Optional S3 Backups (IAM Required)

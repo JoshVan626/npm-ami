@@ -252,6 +252,7 @@ Additional opt-in commands:
 - `sudo npm-helper rollback` – restore last known good backup + prior image metadata
 - `sudo npm-helper backup verify` – verify the latest backup archive
 - `sudo npm-helper restore --dry-run <backup>` – validate a restore without changes
+- `sudo npm-helper restore --verify <backup>` – generate machine-readable restore verification report
 - `sudo northstar observability status` – inspect opt-in CloudWatch baseline state
 - `sudo northstar observability enable --dry-run` – preview dashboard/alarm actions and IAM expectations
 - `sudo northstar observability enable` – enable CloudWatch baseline (agent + dashboard + alarms)

@@ -83,6 +83,12 @@ If something goes wrong with the new instance:
 - Investigate issues on the new instance without pressure
 - Fix issues and try the upgrade again when ready
 
+### Compatibility matrix reference
+
+Before planning in-place upgrades, check the AMI/NPM compatibility table in:
+
+- `RELEASES.md` under **Compatibility Matrix**
+
 ---
 
 ## 3. Updating NPM Docker image (optional in-place patch upgrade)

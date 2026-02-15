@@ -15,6 +15,7 @@ No runtime telemetry is sent externally.
 
 - Generated JSON: `metrics/reliability-scorecard-latest.json`
 - Generated markdown: `metrics/reliability-scorecard-latest.md`
+- Generated restore verification report: `metrics/restore-verify-report-latest.json` (when command scenarios run)
 - Format examples:
   - `metrics/reliability-scorecard.example.json`
   - `metrics/reliability-scorecard.example.md`
@@ -23,6 +24,12 @@ No runtime telemetry is sent externally.
 
 ```bash
 scripts/07-reliability-harness.sh --output-dir metrics
+```
+
+Disable command execution (env-input mode only):
+
+```bash
+scripts/07-reliability-harness.sh --output-dir metrics --no-run-commands
 ```
 
 Or run validation and emit metrics in one pass:
@@ -43,8 +50,17 @@ scripts/05-validate.sh --emit-metrics
 
 Unset values default to `0`.
 
+By default, the harness also attempts run-driven scenarios and records exit codes/timings:
+
+- `npm-helper backup verify`
+- `npm-helper upgrade --dry-run`
+- `npm-helper restore --dry-run <latest-backup>`
+- `npm-helper restore --verify --report-file ... <latest-backup>`
+
+When command execution is not possible, scenarios are recorded as `skipped` with reasons.
+
 ## Acceptance criteria
 
 - Artifact generation is deterministic and repeatable.
 - Metrics are written only to local files.
-- JSON schema includes run counts, success rates, and recovery timing.
+- JSON schema includes scenario metadata (`scenario_count`, `passed`, `failed`, `warned`, `skipped`, durations), success rates, and recovery timing.

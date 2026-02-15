@@ -93,6 +93,7 @@ Diagram source: [`docs/assets/architecture.mmd`](./assets/architecture.mmd).
 - See **[Monitoring & Metrics](./monitoring-and-metrics.md)** for CloudWatch logs and metrics.
 - See **[Upgrades](./upgrades.md)** for upgrading the AMI and NPM versions.
 - See **[Reliability Scorecard](./reliability-scorecard.md)** for local-only reliability artifact format and generation.
+- See **[Releases](../RELEASES.md)** for AMI/NPM compatibility matrix and release-specific upgrade guidance.
 - See **[Examples: Multi-App Setup](./examples-multi-app.md)** for a common use case.
 - Look at **[Roadmap](./roadmap.md)** for planned future enhancements.
 - Review **[Releases](../RELEASES.md)** for a repository release log scaffold.

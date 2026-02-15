@@ -4,6 +4,17 @@ Use this file to track AMI releases that correspond to AWS Marketplace versions.
 
 ## Releases
 
+## Compatibility Matrix
+
+| AMI Release | Pinned NPM Image | Supported In-Place Path | Rollback Command |
+|---|---|---|---|
+| v1.0.0-rc1 | `jc21/nginx-proxy-manager:2.13.5` | `sudo npm-helper upgrade --dry-run` then `sudo npm-helper upgrade` | `sudo npm-helper rollback` |
+
+Notes:
+- Preferred production upgrade remains AMI replacement + restore.
+- In-place updates must remain backup-first.
+- Update this matrix for every release entry below.
+
 ### Version: v1.0.0-rc1
 **Date:** 2026-02-10 (UTC)  
 **Commit:** TBD (set to `git rev-parse HEAD` at release time)  
@@ -29,6 +40,9 @@ Use this file to track AMI releases that correspond to AWS Marketplace versions.
 **AMI ID(s):**  
 - us-east-1: ami-xxxxxxxxxxxxxxxxx  
 - us-west-2: ami-xxxxxxxxxxxxxxxxx  
+**Pinned NPM Image:** jc21/nginx-proxy-manager:<tag>  
+**Supported In-Place Upgrade Path:** `sudo npm-helper upgrade --dry-run` -> `sudo npm-helper upgrade`  
+**Rollback Path:** `sudo npm-helper rollback`  
 
 **Highlights:**
 - <short change summary>

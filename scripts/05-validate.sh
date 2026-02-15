@@ -159,6 +159,8 @@ require_grep "$AMI_FILES/usr-local-bin/npm-helper" "subparsers\.add_parser\\([[:
 require_grep "$AMI_FILES/usr-local-bin/npm-helper" "subparsers\.add_parser\\([[:space:]]*\"observability\""
 require_grep "$AMI_FILES/usr-local-bin/npm-helper" "subparsers\.add_parser\\([[:space:]]*\"backup\""
 require_grep "$AMI_FILES/usr-local-bin/npm-helper" "subparsers\.add_parser\\([[:space:]]*\"restore\""
+require_grep "$AMI_FILES/usr-local-bin/npm-helper" "--verify"
+require_grep "$AMI_FILES/usr-local-bin/npm-helper" "RESTORE_VERIFY_REPORT_DEFAULT"
 require_grep "$AMI_FILES/usr-local-bin/npm-helper" "LAST_KNOWN_GOOD_PATH"
 require_grep "$AMI_FILES/usr-local-bin/npm-helper" "LAST_ATTEMPT_PATH"
 require_grep "$AMI_FILES/usr-local-bin/npm_common.py" "Security expectations"
@@ -171,7 +173,30 @@ require_grep "$REPO_ROOT/docs/operations.md" "npm-helper rollback"
 require_grep "$REPO_ROOT/docs/operations.md" "northstar observability enable"
 require_grep "$REPO_ROOT/docs/backup-restore.md" "npm-helper backup verify"
 require_grep "$REPO_ROOT/docs/backup-restore.md" "npm-helper restore --dry-run"
+require_grep "$REPO_ROOT/docs/backup-restore.md" "npm-helper restore --verify"
 require_grep "$REPO_ROOT/docs/reliability-scorecard.md" "07-reliability-harness.sh"
+require_grep "$REPO_ROOT/RELEASES.md" "Compatibility Matrix"
+require_grep "$REPO_ROOT/docs/upgrades.md" "Compatibility Matrix"
+
+# 2c-1) Example scorecard schema check
+if python3 - "$REPO_ROOT/metrics/reliability-scorecard.example.json" <<'PY'
+import json
+import sys
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as f:
+    data = json.load(f)
+assert "run_metadata" in data
+assert "scenarios" in data
+meta = data["run_metadata"]
+for k in ("scenario_count", "passed", "failed", "warned", "skipped"):
+    assert k in meta
+assert isinstance(data["scenarios"], list)
+PY
+then
+  pass "scorecard example schema"
+else
+  fail "scorecard example schema invalid"
+fi
 
 # 2d) Ensure MOTD snippets do not print secrets
 if python3 - "$AMI_FILES/usr-local-bin/npm_common.py" <<'PY'
@@ -254,6 +279,27 @@ if [[ "$failures" -eq 0 ]]; then
     if [[ -x "$REPO_ROOT/scripts/07-reliability-harness.sh" ]]; then
       if "$REPO_ROOT/scripts/07-reliability-harness.sh" --output-dir "$REPO_ROOT/metrics" >/dev/null 2>&1; then
         pass "reliability artifacts generated in metrics/"
+        if python3 - "$REPO_ROOT/metrics/reliability-scorecard-latest.json" <<'PY'
+import json
+import sys
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as f:
+    data = json.load(f)
+required = ("run_metadata", "scenarios", "first_boot", "upgrade", "restore")
+for key in required:
+    if key not in data:
+        raise SystemExit(1)
+meta = data.get("run_metadata", {})
+for k in ("scenario_count", "passed", "failed", "warned", "skipped"):
+    if k not in meta:
+        raise SystemExit(2)
+raise SystemExit(0)
+PY
+        then
+          pass "scorecard schema includes run metadata fields"
+        else
+          fail "scorecard schema missing run metadata fields"
+        fi
       else
         warn "reliability harness returned non-zero; continuing"
       fi
