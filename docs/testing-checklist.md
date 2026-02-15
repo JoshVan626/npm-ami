@@ -182,6 +182,7 @@ sudo test -f /var/lib/northstar/npm/upgrade/last-known-good.json && echo "lkg me
 latest_backup="$(ls -1t /var/backups/npm-*.tar.gz | head -n 1)"
 sudo npm-helper restore --verify "$latest_backup"
 sudo test -f /var/lib/northstar/npm/restore-verify-latest.json && echo "restore verify report present"
+sudo systemctl status npm-restore-verify.timer --no-pager
 ```
 
 ### CloudWatch behavior (IAM optional)
@@ -224,6 +225,7 @@ sudo npm-helper diagnostics --json | python3 -c 'import sys,json; json.load(sys.
 - [ ] `npm.service` is active
 - [ ] `npm-init.service` runs and completes (one-time)
 - [ ] `npm-backup.timer` is active
+- [ ] `npm-restore-verify.timer` is active
 - [ ] `amazon-cloudwatch-agent.service` is active
 - [ ] `fail2ban.service` is active
 
@@ -411,6 +413,7 @@ After running cleanup and creating the AMI:
 - [ ] `metrics/reliability-scorecard-latest.json` is generated and valid JSON
 - [ ] `metrics/reliability-scorecard-latest.md` is generated
 - [ ] `metrics/restore-verify-report-latest.json` is generated when backup scenarios run
+- [ ] periodic report source `/var/lib/northstar/npm/restore-verify-latest.json` is ingested when present
 - [ ] Scorecard JSON includes `run_metadata.scenario_count`, `passed`, `failed`, `warned`, `skipped`
 - [ ] No external telemetry is sent; artifacts are local files only
 

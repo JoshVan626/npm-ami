@@ -64,7 +64,7 @@ echo ""
 echo "[3/6] Installing Python helper scripts and diagnostics..."
 
 PYTHON_SCRIPTS=("npm-init.py" "npm-helper" "npm_common.py")
-BASH_SCRIPTS=("npm-backup" "npm-restore" "npm-diagnostics" "npm-support-bundle" "npm-preflight" "npm-postinit" "npm-update-container" "npm-stack-start" "npm-cert-check" "northstar")
+BASH_SCRIPTS=("npm-backup" "npm-restore" "npm-restore-verify" "npm-diagnostics" "npm-support-bundle" "npm-preflight" "npm-postinit" "npm-update-container" "npm-stack-start" "npm-cert-check" "northstar")
 
 # Copy Python scripts
 for script in "${PYTHON_SCRIPTS[@]}"; do
@@ -140,6 +140,8 @@ SYSTEMD_UNITS=(
     "npm-postinit.service"
     "npm-backup.service"
     "npm-backup.timer"
+    "npm-restore-verify.service"
+    "npm-restore-verify.timer"
     "npm-cert-check.service"
     "npm-cert-check.timer"
 )
@@ -216,6 +218,14 @@ else
     exit 1
 fi
 
+if systemctl enable npm-restore-verify.timer --quiet; then
+    ENABLED_UNITS+=("npm-restore-verify.timer")
+    echo "  ✓ Enabled: npm-restore-verify.timer"
+else
+    echo "  ✗ Error: Failed to enable npm-restore-verify.timer"
+    exit 1
+fi
+
 echo "✓ Systemd units enabled"
 
 # Summary
@@ -252,6 +262,7 @@ echo ""
 echo "Note: Services will start automatically on boot."
 echo "      npm.service and npm-init.service will run on first boot."
 echo "      npm-backup.timer will run daily at 02:00."
+echo "      npm-restore-verify.timer will run daily with randomized delay."
 echo ""
 echo "Next steps:"
 echo "  - Run 03-security-hardening.sh to configure security settings"

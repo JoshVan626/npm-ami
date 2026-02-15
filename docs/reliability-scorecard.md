@@ -16,6 +16,7 @@ No runtime telemetry is sent externally.
 - Generated JSON: `metrics/reliability-scorecard-latest.json`
 - Generated markdown: `metrics/reliability-scorecard-latest.md`
 - Generated restore verification report: `metrics/restore-verify-report-latest.json` (when command scenarios run)
+- Periodic restore verification source (on AMI instances): `/var/lib/northstar/npm/restore-verify-latest.json`
 - Format examples:
   - `metrics/reliability-scorecard.example.json`
   - `metrics/reliability-scorecard.example.md`
@@ -56,6 +57,7 @@ By default, the harness also attempts run-driven scenarios and records exit code
 - `npm-helper upgrade --dry-run`
 - `npm-helper restore --dry-run <latest-backup>`
 - `npm-helper restore --verify --report-file ... <latest-backup>`
+- periodic report ingest from `/var/lib/northstar/npm/restore-verify-latest.json` when present
 
 When command execution is not possible, scenarios are recorded as `skipped` with reasons.
 

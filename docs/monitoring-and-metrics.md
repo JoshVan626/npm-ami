@@ -105,6 +105,18 @@ If using `northstar observability enable`, include these additional actions:
 - `logs:PutMetricFilter`
 - `logs:DeleteMetricFilter`
 
+If you provide SNS action ARNs to `northstar observability enable`, also include:
+
+- `sns:Publish` (scoped to your topic ARN(s))
+
+Example (optional notifications):
+
+```bash
+sudo northstar observability enable \
+  --alarm-action-arn arn:aws:sns:us-east-1:123456789012:npm-alerts \
+  --ok-action-arn arn:aws:sns:us-east-1:123456789012:npm-alerts
+```
+
 ### Troubleshooting permissions
 
 - **Agent logs**: `sudo journalctl -u amazon-cloudwatch-agent.service -n 200 --no-pager`

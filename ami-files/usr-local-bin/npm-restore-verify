@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# Periodic non-destructive restore verification runner.
+# - Finds latest backup archive
+# - Runs npm-helper restore --verify
+# - Stores timestamped report history + latest pointer copy
+# - Prunes old reports (default keep 30)
+
+set -euo pipefail
+
+START_TS="$(date +%s)"
+STATE_DIR="/var/lib/northstar/npm"
+REPORT_DIR="${STATE_DIR}/reports"
+LATEST_REPORT="${STATE_DIR}/restore-verify-latest.json"
+BACKUP_CONFIG="/etc/npm-backup.conf"
+DEFAULT_BACKUP_DIR="/var/backups"
+DEFAULT_RETENTION=30
+HELPER_BIN="/usr/local/bin/npm-helper"
+
+require_root() {
+  if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+    echo "Error: must be run as root." >&2
+    exit 1
+  fi
+}
+
+parse_backup_dir() {
+  python3 - "$BACKUP_CONFIG" "$DEFAULT_BACKUP_DIR" <<'PY'
+import configparser
+import sys
+
+cfg = sys.argv[1]
+fallback = sys.argv[2]
+parser = configparser.ConfigParser()
+try:
+    parser.read(cfg)
+    value = parser.get("backup", "local_backup_dir", fallback=fallback).strip()
+    print(value or fallback)
+except Exception:
+    print(fallback)
+PY
+}
+
+emit_status() {
+  local status="$1"
+  local detail="$2"
+  local elapsed
+  elapsed=$(( $(date +%s) - START_TS ))
+  if [[ "$status" == "success" ]]; then
+    echo "NORTHSTAR_RESTORE_VERIFY status=success report=${detail} duration_s=${elapsed}"
+  else
+    echo "NORTHSTAR_RESTORE_VERIFY status=failure reason=${detail} duration_s=${elapsed}"
+  fi
+}
+
+prune_reports() {
+  local keep="$1"
+  if [[ "$keep" -lt 1 ]]; then
+    keep=1
+  fi
+  mapfile -t reports < <(ls -1t "${REPORT_DIR}"/restore-verify-*.json 2>/dev/null || true)
+  local count="${#reports[@]}"
+  if [[ "$count" -le "$keep" ]]; then
+    return 0
+  fi
+  local idx
+  for ((idx=keep; idx<count; idx++)); do
+    rm -f "${reports[$idx]}" || true
+  done
+}
+
+main() {
+  require_root
+  mkdir -p "$REPORT_DIR"
+  chmod 0750 "$STATE_DIR" "$REPORT_DIR" || true
+  chown root:root "$STATE_DIR" "$REPORT_DIR" || true
+
+  if [[ ! -x "$HELPER_BIN" ]]; then
+    emit_status "failure" "npm_helper_missing"
+    exit 1
+  fi
+
+  local backup_dir latest_backup retention report_path ts
+  backup_dir="$(parse_backup_dir)"
+  latest_backup="$(ls -1t "${backup_dir}"/npm-*.tar.gz 2>/dev/null | head -n 1 || true)"
+  if [[ -z "${latest_backup:-}" ]]; then
+    emit_status "failure" "backup_missing"
+    exit 1
+  fi
+
+  retention="${NPM_RESTORE_VERIFY_RETENTION:-$DEFAULT_RETENTION}"
+  if ! [[ "$retention" =~ ^[0-9]+$ ]]; then
+    retention="$DEFAULT_RETENTION"
+  fi
+
+  ts="$(date -u +%Y%m%dT%H%M%SZ)"
+  report_path="${REPORT_DIR}/restore-verify-${ts}.json"
+
+  if ! "$HELPER_BIN" restore --verify --report-file "$report_path" "$latest_backup"; then
+    emit_status "failure" "verify_failed"
+    exit 1
+  fi
+
+  cp -f "$report_path" "$LATEST_REPORT"
+  chmod 0640 "$LATEST_REPORT" "$report_path" || true
+  chown root:root "$LATEST_REPORT" "$report_path" || true
+
+  prune_reports "$retention"
+  emit_status "success" "$report_path"
+}
+
+main "$@"

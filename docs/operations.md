@@ -157,6 +157,7 @@ Key services:
 - `npm-init.service` – one-time first-boot initialization
 - `npm-postinit.service` – first-boot post-init health summary
 - `npm-backup.timer` – daily backup timer
+- `npm-restore-verify.timer` – periodic non-destructive restore verification timer
 - `npm-cert-check.timer` – daily certificate expiry check
 - `amazon-cloudwatch-agent.service` – CloudWatch log shipping
 
@@ -253,9 +254,12 @@ Additional opt-in commands:
 - `sudo npm-helper backup verify` – verify the latest backup archive
 - `sudo npm-helper restore --dry-run <backup>` – validate a restore without changes
 - `sudo npm-helper restore --verify <backup>` – generate machine-readable restore verification report
+- `sudo npm-restore-verify` – run periodic restore verification workflow once
 - `sudo northstar observability status` – inspect opt-in CloudWatch baseline state
 - `sudo northstar observability enable --dry-run` – preview dashboard/alarm actions and IAM expectations
 - `sudo northstar observability enable` – enable CloudWatch baseline (agent + dashboard + alarms)
+- `sudo northstar observability enable --alarm-action-arn arn:aws:sns:...` – opt-in SNS alarm notifications (repeatable)
+- `sudo northstar observability enable --ok-action-arn arn:aws:sns:...` – opt-in SNS OK notifications (repeatable)
 - `sudo northstar observability disable` – disable baseline and remove created CloudWatch resources
 
 ---

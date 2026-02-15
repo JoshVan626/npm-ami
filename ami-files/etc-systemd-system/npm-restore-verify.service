@@ -1,0 +1,13 @@
+[Unit]
+Description=Northstar Cloud Solutions NPM restore verification (non-destructive)
+Documentation=https://northstarcloud.io/docs/npm-ami
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/npm-restore-verify
+TimeoutStartSec=600
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

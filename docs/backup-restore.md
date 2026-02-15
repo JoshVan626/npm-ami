@@ -184,6 +184,35 @@ sudo npm-helper restore --verify --report-file /tmp/restore-verify.json /var/bac
 
 The report includes backup path, detected restore targets, warnings/errors, and elapsed duration.
 
+## Periodic restore verification (timer)
+
+This AMI also supports scheduled non-destructive restore verification:
+
+- Service: `npm-restore-verify.service`
+- Timer: `npm-restore-verify.timer`
+- Default schedule: daily with randomized delay
+- Report history directory: `/var/lib/northstar/npm/reports`
+- Latest report: `/var/lib/northstar/npm/restore-verify-latest.json`
+
+Run manually:
+
+```bash
+sudo systemctl start npm-restore-verify.service
+```
+
+Check timer:
+
+```bash
+sudo systemctl status npm-restore-verify.timer
+```
+
+Report retention:
+
+- Keeps latest 30 periodic reports by default.
+- Override with environment variable for one run:
+  - `NPM_RESTORE_VERIFY_RETENTION=<n> sudo npm-restore-verify`
+- Backup archives are never deleted by this report pruning.
+
 ---
 
 ## Optional S3 Backups (IAM Required)

@@ -57,6 +57,7 @@ RESTORE_RECOVERY_SECONDS="${RESTORE_RECOVERY_SECONDS:-0}"
 JSON_OUT="${METRICS_DIR}/reliability-scorecard-latest.json"
 MD_OUT="${METRICS_DIR}/reliability-scorecard-latest.md"
 RESTORE_REPORT_OUT="${METRICS_DIR}/restore-verify-report-latest.json"
+PERIODIC_RESTORE_REPORT="/var/lib/northstar/npm/restore-verify-latest.json"
 
 SCENARIOS_JSON="${METRICS_DIR}/.reliability-scenarios.tmp.jsonl"
 : > "$SCENARIOS_JSON"
@@ -111,6 +112,39 @@ run_scenario() {
   fi
 }
 
+ingest_periodic_restore_report() {
+  local report_path="$1"
+  if [[ ! -f "$report_path" ]]; then
+    scenario_entry "restore_verify_periodic_latest" "skipped" "" "0" "read ${report_path}" "periodic_report_missing"
+    return 0
+  fi
+  python3 - "$report_path" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+except Exception:
+    print("restore_verify_periodic_latest|fail||0|read " + path + "|periodic_report_parse_error")
+    raise SystemExit(0)
+
+status = str(data.get("status", "unknown")).lower()
+duration = float(data.get("duration_seconds", 0.0))
+if status in ("pass", "success", "green"):
+    out_status = "pass"
+elif status in ("warn", "warning", "yellow"):
+    out_status = "warn"
+elif status in ("fail", "failure", "red"):
+    out_status = "fail"
+else:
+    out_status = "warn"
+reason = "" if out_status in ("pass", "warn") else "periodic_report_failed"
+print(f"restore_verify_periodic_latest|{out_status}||{duration}|read {path}|{reason}")
+PY
+}
+
 if [[ "$RUN_COMMANDS" -eq 1 ]]; then
   NPM_HELPER_BIN="/usr/local/bin/npm-helper"
   if [[ ! -x "$NPM_HELPER_BIN" ]]; then
@@ -137,6 +171,17 @@ else
   scenario_entry "restore_dry_run" "skipped" "" "0" "/usr/local/bin/npm-helper restore --dry-run <latest_backup>" "run_commands_disabled"
   scenario_entry "restore_verify_report" "skipped" "" "0" "/usr/local/bin/npm-helper restore --verify --report-file ${RESTORE_REPORT_OUT} <latest_backup>" "run_commands_disabled"
 fi
+
+while IFS= read -r line; do
+  [[ -z "$line" ]] && continue
+  name="$(echo "$line" | cut -d'|' -f1)"
+  status="$(echo "$line" | cut -d'|' -f2)"
+  exit_code="$(echo "$line" | cut -d'|' -f3)"
+  duration="$(echo "$line" | cut -d'|' -f4)"
+  cmd="$(echo "$line" | cut -d'|' -f5)"
+  reason="$(echo "$line" | cut -d'|' -f6)"
+  scenario_entry "$name" "$status" "$exit_code" "$duration" "$cmd" "$reason"
+done < <(ingest_periodic_restore_report "$PERIODIC_RESTORE_REPORT")
 
 python3 - "$JSON_OUT" "$MD_OUT" \
   "$SCENARIOS_JSON" \

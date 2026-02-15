@@ -87,6 +87,7 @@ Once the instance is running:
    - `sudo npm-helper upgrade --dry-run`
    - `sudo npm-helper rollback --dry-run`
    - `sudo northstar observability enable --dry-run`
+   - `sudo systemctl status npm-restore-verify.timer --no-pager`
 
 ---
 
