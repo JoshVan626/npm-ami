@@ -229,6 +229,8 @@ Support is provided on a **best-effort basis**.
 **Support contact:**  
 📧 **support@northstarcloud.io**
 
+See [FAQ](docs/faq.md) for common questions.
+
 Support includes:
 - AMI initialization issues
 - Credential recovery using provided tools
@@ -268,20 +270,26 @@ Suggested title:
 - **Nginx Proxy Manager (NPM) for AWS — Production-Ready, Secure Admin Plane, Backups & Monitoring**
 
 Feature bullets (draft):
-- Hardened Ubuntu 22.04 baseline with conservative defaults
-- Systemd-managed Nginx Proxy Manager stack (Docker + docker compose plugin)
-- One-time first-boot initialization (credentials generated per instance)
-- Optional backups (local + optional S3)
-- Optional CloudWatch Agent configuration (logs + system metrics)
-- Included helper tools for status and diagnostics
+1. Backup-first upgrade workflow with one-command rollback
+2. Admin plane restricted by default (port 81 allowlist or SSH tunnel)
+3. Deterministic first-boot orchestration (preflight, init, postinit)
+4. Hardened Ubuntu 22.04 with UFW, fail2ban, sysctl
+5. Daily backup timer + optional S3; restore verification
+6. Optional CloudWatch logs/metrics
+7. Terraform and CloudFormation deployment templates
 
 Shared responsibility (draft):
 - Customer controls VPC/security groups, DNS, and application configuration inside NPM
 - Optional IAM permissions (CloudWatch/S3) are customer-owned and optional
 - Vendor provides the AMI lifecycle automation, hardening, and documented tooling
 
+Suggested demo video topics (for manual recording):
+- Launch to first proxy host in 15 minutes
+- Upgrade with rollback demo
+- Admin plane security: allowlist vs SSH tunnel
+
 Keywords (draft):
-- nginx proxy manager, reverse proxy, tls, letsencrypt, ubuntu 22.04, docker, systemd, aws marketplace, hardened, fail2ban, ufw, cloudwatch, backup
+- nginx proxy manager, reverse proxy, tls, letsencrypt, ubuntu 22.04, docker, systemd, aws marketplace, hardened, fail2ban, ufw, cloudwatch, backup, rollback, backup-first, upgrade, lifecycle, MSP
 
 ## Licensing
 

@@ -56,6 +56,7 @@ The result is a **self-contained reverse proxy appliance** that can be launched 
 - Frequently need to stand up reverse proxies per client/VPC and provide secure remote access to customer apps.  
 - Want a **repeatable, hardened “drop-in” proxy appliance**.  
 - Prefer standardized deployment and documentation they can reuse for multiple clients.
+- See the [MSP Guide](docs/msp-guide.md) for deployment at scale, per-customer checklists, and remote troubleshooting.
 
 ### 2.3 Example use cases
 

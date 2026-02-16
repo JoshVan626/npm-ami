@@ -8,19 +8,40 @@ customers where the product is heading.
 
 ---
 
-## Planned: NPM update tooling
+## Shipped: NPM upgrade tooling
 
-Currently, NPM is pinned to a specific Docker image version for stability.
-Planned enhancements include:
+The AMI includes safe, repeatable upgrade and rollback tooling:
 
-- A dedicated `npm-update` CLI tool that will:
-  - Create a backup of NPM data before updating
-  - Pull a new NPM image version (configurable tag)
-  - Restart the stack and perform a health check
-  - Allow easy rollback if the new version misbehaves
+- **`npm-helper upgrade`** – Backup-first upgrade workflow with preflight checks; supports `--dry-run` and `--auto-rollback` on health check failure
+- **`npm-helper rollback`** – One-command rollback to last-known-good state using upgrade metadata
+- **`npm-update-container`** – Updates the pinned NPM Docker image with safety backup and rollback support
 
-Goal: provide a **safe, repeatable upgrade path** without requiring manual
-Docker commands.
+See [Upgrades](upgrades.md) for full guidance.
+
+---
+
+## Planned: HA / multi-node reference architecture
+
+- Documentation and examples for:
+  - Running NPM behind an AWS Application Load Balancer
+  - Route 53 health checks and multiple NPM instances for higher availability
+  - Manual or scripted failover patterns
+
+Goal: give teams clearer guidance on scaling from a single NPM instance to more resilient setups.
+
+---
+
+## Planned: Optional SSO/IdP integration
+
+- Integration with identity providers (OAuth2, SAML) for NPM admin UI access
+- Single sign-on for teams with existing IdP infrastructure
+
+---
+
+## Planned: Route 53 automation
+
+- Optional automation for DNS record management (e.g., A/AAAA records for proxy hosts)
+- Integration with Let's Encrypt HTTP-01 and DNS-01 challenges
 
 ---
 
@@ -45,20 +66,4 @@ Potential enhancements:
 - Optional collection of NPM application logs into CloudWatch Logs
 - Example dashboards/queries to monitor NPM activity
 
-These will be designed to avoid adding overhead for users who don’t need them.
-
----
-
-## Planned: Deployment patterns & HA guides
-
-Non-code roadmap items:
-
-- Documentation for:
-  - Running NPM behind an AWS Application Load Balancer
-  - Using Route 53 health checks and multiple NPM instances for higher
-    availability (manual or scripted)
-  - Example CloudFormation / Terraform snippets to deploy the AMI in a
-    standardized way
-
-Goal: give teams clearer guidance on how to scale from a single NPM instance
-to more resilient setups.
+These will be designed to avoid adding overhead for users who don't need them.

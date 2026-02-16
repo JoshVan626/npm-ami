@@ -1,0 +1,26 @@
+name: Validate
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      - name: Validate
+        run: ./scripts/05-validate.sh
+
+      - name: Secret scan
+        run: ./scripts/07-secret-scan.sh
+
+      - name: Reliability harness (env-input mode)
+        run: ./scripts/07-reliability-harness.sh --no-run-commands --output-dir metrics

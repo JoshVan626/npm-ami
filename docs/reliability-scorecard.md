@@ -39,6 +39,22 @@ Or run validation and emit metrics in one pass:
 scripts/05-validate.sh --emit-metrics
 ```
 
+## CI Integration
+
+The CI workflow (`.github/workflows/validate.yml`) runs the reliability harness in **env-input mode only**:
+
+```bash
+scripts/07-reliability-harness.sh --no-run-commands --output-dir metrics
+```
+
+This validates that the harness script runs and emits scorecard artifacts. All command-driven scenarios (backup verify, upgrade dry-run, restore dry-run, etc.) are recorded as `skipped` because they require a live AMI instance.
+
+**Full scenario execution** (backup verify, upgrade dry-run, restore dry-run) requires a live EC2 instance with the AMI. To run the full harness:
+
+1. Launch a test instance from the AMI
+2. Run: `scripts/07-reliability-harness.sh --output-dir metrics` (without `--no-run-commands`)
+3. Or use a scheduled EC2-based pipeline that launches instances, runs the harness, and shuts down
+
 ## Input model
 
 `scripts/07-reliability-harness.sh` accepts run counts and recovery durations via environment variables:

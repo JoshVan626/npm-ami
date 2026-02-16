@@ -85,6 +85,8 @@ Diagram source: [`docs/assets/architecture.mmd`](./assets/architecture.mmd).
 ## How to use this documentation
 
 - Start with **[Quickstart](./quickstart.md)** – to go from AMI → running NPM in minutes.
+- See **[First 15 Minutes](./first-15-minutes.md)** for a tight time-boxed onboarding flow.
+- See **[FAQ](./faq.md)** for common questions.
 - See **[Operations](./operations.md)** for CLI helpers, services, and logging.
 - Use **[Backup & Restore](./backup-restore.md)** to protect your config and TLS certs.
 - Review **[Security](./security.md)** to understand the hardening choices.
@@ -95,5 +97,6 @@ Diagram source: [`docs/assets/architecture.mmd`](./assets/architecture.mmd).
 - See **[Reliability Scorecard](./reliability-scorecard.md)** for local-only reliability artifact format and generation.
 - See **[Releases](../RELEASES.md)** for AMI/NPM compatibility matrix and release-specific upgrade guidance.
 - See **[Examples: Multi-App Setup](./examples-multi-app.md)** for a common use case.
+- See **[MSP Guide](./msp-guide.md)** for MSPs managing multiple instances.
 - Look at **[Roadmap](./roadmap.md)** for planned future enhancements.
 - Review **[Releases](../RELEASES.md)** for a repository release log scaffold.

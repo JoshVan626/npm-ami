@@ -5,6 +5,8 @@
 This guide walks you from **nothing** to a working Nginx Proxy Manager admin
 panel on AWS using the Nginx Proxy Manager (NPM) for AWS AMI by Northstar Cloud Solutions.
 
+> **For a tight 15-minute flow,** see [First 15 Minutes](first-15-minutes.md).
+
 > Assumes: you’re familiar with launching EC2 instances and security groups.
 
 This is a server-only AMI (no desktop GUI). Use SSH or EC2 Instance Connect for access and administration.
