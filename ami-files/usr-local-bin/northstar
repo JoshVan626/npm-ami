@@ -17,6 +17,8 @@ Commands:
   backup                     Run npm-backup
   restore                    Run npm-restore
   support-bundle             Run npm-support-bundle
+  health-report [--json]     Unified pass/warn/fail health assessment
+  reliability-report [--json] Runtime reliability KPIs
 
 Examples:
   sudo northstar status
@@ -59,6 +61,12 @@ case "$cmd" in
     ;;
   support-bundle)
     exec npm-support-bundle "$@"
+    ;;
+  health-report)
+    exec npm-helper health-report "$@"
+    ;;
+  reliability-report)
+    exec npm-helper reliability-report "$@"
     ;;
   -h|--help|help)
     usage

@@ -240,6 +240,10 @@ This is a quick way to check if the system is healthy.
 
 Additional opt-in commands:
 
+- `sudo npm-helper health-report` – unified pass/warn/fail health assessment across all subsystems (backup, restore, certs, disk, upgrade state)
+- `sudo npm-helper health-report --json` – machine-readable JSON health report for fleet dashboards or monitoring
+- `sudo npm-helper reliability-report` – runtime reliability KPIs computed from instance history (backup success rate, restore verification pass rate, rollback readiness)
+- `sudo npm-helper reliability-report --json` – machine-readable JSON reliability KPIs
 - `sudo npm-helper update-os` – run a one-click `apt-get update` + `apt-get upgrade` (may require reboot)
 - `sudo npm-helper diagnostics --json` – emit non-sensitive diagnostic JSON for support/troubleshooting
 - `sudo npm-helper admin-access enable --cidr <ip>/32` – allowlist port 81 from a trusted IP
@@ -461,6 +465,28 @@ The archive may be corrupted, tampered with, or created by a different tool.
 Do not attempt to bypass this check.
 
 See [Backup & Restore](./backup-restore.md) for restore procedures.
+
+### Post-restore application validation
+
+After a successful restore, the `npm-restore` script automatically performs application-level validation beyond the basic HTTP health check:
+
+1. **Database integrity** -- Runs `PRAGMA integrity_check` on the restored SQLite database
+2. **User table** -- Verifies the `user` table exists and contains at least one admin user
+3. **Proxy host schema** -- Confirms the `proxy_host` table is present in the restored database
+4. **API validation** -- Queries the NPM REST API (`/api/nginx/proxy-hosts`) to confirm the application is serving data
+
+These checks are non-blocking: if any check fails, a warning is printed and the structured log line `NORTHSTAR_RESTORE_VALIDATE` is emitted for CloudWatch alerting, but the restore is still considered successful at the file level.
+
+### Backup verification with database checks
+
+The `npm-helper restore --verify` command now includes database integrity checks:
+
+- Extracts `database.sqlite` from the backup archive to a temporary directory
+- Runs `PRAGMA integrity_check` to detect corruption
+- Verifies `user` and `proxy_host` table schemas are present
+- Records all results under the `"database_checks"` key in the JSON verification report
+
+This ensures backups contain a structurally sound, non-corrupt database.
 
 ---
 

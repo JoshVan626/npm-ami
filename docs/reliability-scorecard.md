@@ -66,3 +66,41 @@ When command execution is not possible, scenarios are recorded as `skipped` with
 - Artifact generation is deterministic and repeatable.
 - Metrics are written only to local files.
 - JSON schema includes scenario metadata (`scenario_count`, `passed`, `failed`, `warned`, `skipped`, durations), success rates, and recovery timing.
+
+## Runtime reliability reporting
+
+On running AMI instances, operators can view live reliability KPIs computed from the instance's own operational history:
+
+```bash
+sudo npm-helper reliability-report
+sudo npm-helper reliability-report --json
+```
+
+Or via the `northstar` wrapper:
+
+```bash
+sudo northstar reliability-report
+sudo northstar reliability-report --json
+```
+
+This command computes:
+
+- **Backup success rate** -- percentage of successful backup runs from journal history
+- **Last successful backup age** -- hours since the most recent successful backup
+- **Restore verification pass rate** -- percentage of pass results across all stored verification reports
+- **Latest restore verification result** -- status of the most recent verification
+- **Last upgrade status** -- outcome of the most recent upgrade attempt
+- **Rollback readiness** -- whether a known-good backup and metadata exist for rollback
+
+The `--json` output is designed for integration with fleet monitoring dashboards and compliance evidence collection.
+
+## Runtime health assessment
+
+For a unified operational health check across all subsystems:
+
+```bash
+sudo npm-helper health-report
+sudo npm-helper health-report --json
+```
+
+This evaluates Docker, NPM service, container, init status, backup recency, restore verification, certificate expiry, disk usage, and upgrade state. Each check returns pass/warn/fail, and the overall verdict is the worst status across all checks.

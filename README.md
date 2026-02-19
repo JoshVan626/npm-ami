@@ -36,8 +36,12 @@ This repository is **not** intended to be a general-purpose installation guide. 
   - `npm-backup`
   - `npm-restore`
   - `npm-diagnostics`
-- `npm-support-bundle`
-- `npm-update-container` (`--rollback` supported)
+  - `npm-support-bundle`
+  - `npm-update-container` (`--rollback` supported)
+- **Operator health and reliability reporting**:
+  - `npm-helper health-report` -- unified pass/warn/fail health assessment (supports `--json`)
+  - `npm-helper reliability-report` -- runtime reliability KPIs from instance history (supports `--json`)
+- **Post-restore application validation** -- database integrity, schema, and API endpoint checks after every restore
 
 ---
 

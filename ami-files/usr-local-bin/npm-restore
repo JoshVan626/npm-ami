@@ -39,7 +39,7 @@ echo "Backup archive: $BACKUP_ARCHIVE"
 echo ""
 
 # Step 1: Stop NPM stack
-echo "[1/7] Stopping NPM stack..."
+echo "[1/8] Stopping NPM stack..."
 if systemctl stop npm 2>&1; then
     echo "✓ NPM service stopped"
 else
@@ -57,7 +57,7 @@ sleep 2
 
 # Step 2: Create safety backup of existing data
 echo ""
-echo "[2/7] Creating safety backup of existing data..."
+echo "[2/8] Creating safety backup of existing data..."
 
 SAFETY_TIMESTAMP=$(date +%Y%m%d%H%M%S)
 DATA_DIR="/opt/npm/data"
@@ -95,7 +95,7 @@ fi
 
 # Step 3: Validate archive contents (security check)
 echo ""
-echo "[3/7] Validating archive contents..."
+echo "[3/8] Validating archive contents..."
 
 # SECURITY: Only allow paths within expected NPM directories.
 # This prevents malicious archives from overwriting system files like /etc/passwd.
@@ -138,7 +138,7 @@ echo "✓ Archive contents validated (all paths within allowed directories)"
 
 # Step 4: Extract the backup archive
 echo ""
-echo "[4/7] Extracting backup archive..."
+echo "[4/8] Extracting backup archive..."
 
 # Extract from root (/) so absolute paths are restored correctly
 # Use safer flags: --no-same-owner prevents ownership issues, --no-overwrite-dir is safer
@@ -164,7 +164,7 @@ fi
 
 # Step 5: Fix ownership and permissions
 echo ""
-echo "[5/7] Setting ownership and permissions..."
+echo "[5/8] Setting ownership and permissions..."
 
 # Set ownership to root:root (v1 assumption)
 if chown -R root:root "$DATA_DIR" 2>/dev/null; then
@@ -183,7 +183,7 @@ fi
 
 # Step 6: Start NPM stack
 echo ""
-echo "[6/7] Starting NPM stack..."
+echo "[6/8] Starting NPM stack..."
 
 if systemctl start npm 2>&1; then
     echo "✓ NPM service started"
@@ -198,7 +198,7 @@ sleep 3
 
 # Step 7: Basic health check
 echo ""
-echo "[7/7] Performing health check..."
+echo "[7/8] Performing health check..."
 
 MAX_WAIT=60
 WAIT_INTERVAL=2
@@ -256,6 +256,97 @@ if [[ "$HEALTH_CHECK_PASSED" == false ]]; then
     echo ""
     echo "Restore completed, but health check failed. Please investigate."
     exit 1
+fi
+
+# Step 8: Application-level validation (non-blocking)
+echo ""
+echo "[8/8] Performing application validation..."
+
+VALIDATE_START=$(date +%s)
+APP_CHECKS_PASSED=0
+APP_CHECKS_TOTAL=0
+APP_CHECK_DETAILS=""
+
+# 8a. Database integrity check
+APP_CHECKS_TOTAL=$((APP_CHECKS_TOTAL + 1))
+DB_FILE="/opt/npm/data/database.sqlite"
+if [[ -f "$DB_FILE" ]] && command -v sqlite3 &>/dev/null; then
+    INTEGRITY=$(sqlite3 "$DB_FILE" "PRAGMA integrity_check;" 2>&1 || echo "error")
+    if [[ "$INTEGRITY" == "ok" ]]; then
+        echo "  ✓ Database integrity check passed"
+        APP_CHECKS_PASSED=$((APP_CHECKS_PASSED + 1))
+        APP_CHECK_DETAILS="${APP_CHECK_DETAILS}db_integrity:pass,"
+    else
+        echo "  ⚠ Database integrity check: $INTEGRITY"
+        APP_CHECK_DETAILS="${APP_CHECK_DETAILS}db_integrity:fail,"
+    fi
+else
+    if [[ ! -f "$DB_FILE" ]]; then
+        echo "  ⚠ Database file not found at $DB_FILE"
+        APP_CHECK_DETAILS="${APP_CHECK_DETAILS}db_integrity:skip,"
+    else
+        echo "  ⚠ sqlite3 not available; skipping database integrity check"
+        APP_CHECK_DETAILS="${APP_CHECK_DETAILS}db_integrity:skip,"
+    fi
+fi
+
+# 8b. User table validation
+APP_CHECKS_TOTAL=$((APP_CHECKS_TOTAL + 1))
+if [[ -f "$DB_FILE" ]] && command -v sqlite3 &>/dev/null; then
+    USER_COUNT=$(sqlite3 "$DB_FILE" "SELECT COUNT(*) FROM user;" 2>/dev/null || echo "0")
+    if [[ "$USER_COUNT" -gt 0 ]] 2>/dev/null; then
+        echo "  ✓ User table contains $USER_COUNT user(s)"
+        APP_CHECKS_PASSED=$((APP_CHECKS_PASSED + 1))
+        APP_CHECK_DETAILS="${APP_CHECK_DETAILS}user_table:pass,"
+    else
+        echo "  ⚠ User table is empty or unreadable"
+        APP_CHECK_DETAILS="${APP_CHECK_DETAILS}user_table:fail,"
+    fi
+else
+    echo "  ⚠ Skipping user table check"
+    APP_CHECK_DETAILS="${APP_CHECK_DETAILS}user_table:skip,"
+fi
+
+# 8c. Proxy host table schema validation
+APP_CHECKS_TOTAL=$((APP_CHECKS_TOTAL + 1))
+if [[ -f "$DB_FILE" ]] && command -v sqlite3 &>/dev/null; then
+    TABLE_EXISTS=$(sqlite3 "$DB_FILE" "SELECT name FROM sqlite_master WHERE type='table' AND name='proxy_host';" 2>/dev/null || echo "")
+    if [[ "$TABLE_EXISTS" == "proxy_host" ]]; then
+        echo "  ✓ proxy_host table schema present"
+        APP_CHECKS_PASSED=$((APP_CHECKS_PASSED + 1))
+        APP_CHECK_DETAILS="${APP_CHECK_DETAILS}proxy_host_schema:pass,"
+    else
+        echo "  ⚠ proxy_host table not found in database"
+        APP_CHECK_DETAILS="${APP_CHECK_DETAILS}proxy_host_schema:fail,"
+    fi
+else
+    echo "  ⚠ Skipping proxy_host schema check"
+    APP_CHECK_DETAILS="${APP_CHECK_DETAILS}proxy_host_schema:skip,"
+fi
+
+# 8d. API endpoint validation
+APP_CHECKS_TOTAL=$((APP_CHECKS_TOTAL + 1))
+API_RESPONSE=$(curl -s --max-time 5 http://localhost:81/api/nginx/proxy-hosts 2>/dev/null || echo "")
+if echo "$API_RESPONSE" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+    echo "  ✓ API /api/nginx/proxy-hosts returns valid JSON"
+    APP_CHECKS_PASSED=$((APP_CHECKS_PASSED + 1))
+    APP_CHECK_DETAILS="${APP_CHECK_DETAILS}api_proxy_hosts:pass,"
+else
+    echo "  ⚠ API /api/nginx/proxy-hosts did not return valid JSON (may require auth)"
+    APP_CHECK_DETAILS="${APP_CHECK_DETAILS}api_proxy_hosts:warn,"
+fi
+
+VALIDATE_END=$(date +%s)
+VALIDATE_DURATION=$((VALIDATE_END - VALIDATE_START))
+
+if [[ "$APP_CHECKS_PASSED" -eq "$APP_CHECKS_TOTAL" ]]; then
+    echo "  ✓ All application checks passed ($APP_CHECKS_PASSED/$APP_CHECKS_TOTAL)"
+    echo "NORTHSTAR_RESTORE_VALIDATE status=pass checks=${APP_CHECK_DETAILS%,} duration_s=${VALIDATE_DURATION}"
+else
+    echo "  ⚠ Application validation: $APP_CHECKS_PASSED/$APP_CHECKS_TOTAL checks passed"
+    echo "  Some checks did not pass; this may be expected if the API requires authentication."
+    echo "  The file-level restore completed successfully. Review warnings above."
+    echo "NORTHSTAR_RESTORE_VALIDATE status=warn checks=${APP_CHECK_DETAILS%,} duration_s=${VALIDATE_DURATION}"
 fi
 
 # Success

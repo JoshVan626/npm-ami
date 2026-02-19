@@ -21,8 +21,10 @@ import configparser
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 import shutil
 import shlex
@@ -1003,6 +1005,63 @@ def cmd_backup_verify() -> None:
     sys.exit(0)
 
 
+def verify_database_in_archive(backup: Path) -> dict:
+    """Extract database.sqlite from archive to a temp dir and run integrity checks."""
+    result = {
+        "integrity_check": None,
+        "user_table_exists": None,
+        "user_count": None,
+        "proxy_host_table_exists": None,
+        "errors": [],
+    }
+    tmp_dir = None
+    try:
+        tmp_dir = tempfile.mkdtemp(prefix="npm-db-verify-")
+        extract = run_cmd(
+            ["tar", "-xzf", str(backup), "-C", tmp_dir, "opt/npm/data/database.sqlite"],
+            timeout=30,
+        )
+        db_path = Path(tmp_dir) / "opt" / "npm" / "data" / "database.sqlite"
+        if extract.returncode != 0 or not db_path.exists():
+            result["errors"].append("could not extract database.sqlite from archive")
+            return result
+
+        conn = sqlite3.connect(str(db_path), timeout=5)
+        try:
+            cur = conn.cursor()
+
+            cur.execute("PRAGMA integrity_check;")
+            ic = cur.fetchone()
+            ic_val = ic[0] if ic else "unknown"
+            result["integrity_check"] = ic_val
+            if ic_val != "ok":
+                result["errors"].append(f"PRAGMA integrity_check returned: {ic_val}")
+
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user';")
+            result["user_table_exists"] = cur.fetchone() is not None
+            if result["user_table_exists"]:
+                cur.execute('SELECT COUNT(*) FROM "user";')
+                row = cur.fetchone()
+                result["user_count"] = row[0] if row else 0
+                if result["user_count"] == 0:
+                    result["errors"].append("user table exists but contains 0 rows")
+            else:
+                result["errors"].append("user table not found in database")
+
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='proxy_host';")
+            result["proxy_host_table_exists"] = cur.fetchone() is not None
+            if not result["proxy_host_table_exists"]:
+                result["errors"].append("proxy_host table not found in database")
+        finally:
+            conn.close()
+    except Exception as e:
+        result["errors"].append(f"database verification error: {e}")
+    finally:
+        if tmp_dir:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+    return result
+
+
 def analyze_backup_archive(backup: Path) -> dict:
     min_size_bytes = 1024 * 1024  # 1 MiB
     errors = []
@@ -1064,6 +1123,10 @@ def cmd_restore(
     targets = analyzed.get("targets", [])
 
     if verify:
+        db_checks = verify_database_in_archive(backup)
+        db_errors = db_checks.get("errors", [])
+        errors.extend(db_errors)
+
         report = {
             "generated_at_utc": datetime.utcnow().isoformat() + "Z",
             "mode": "restore_verify",
@@ -1074,6 +1137,12 @@ def cmd_restore(
             "targets": targets,
             "errors": errors,
             "warnings": warnings,
+            "database_checks": {
+                "integrity_check": db_checks.get("integrity_check"),
+                "user_table_exists": db_checks.get("user_table_exists"),
+                "user_count": db_checks.get("user_count"),
+                "proxy_host_table_exists": db_checks.get("proxy_host_table_exists"),
+            },
             "status": "pass" if not errors else "fail",
             "duration_seconds": round(time.time() - start, 3),
         }
@@ -1095,6 +1164,11 @@ def cmd_restore(
             print("Targets detected:")
             for target in targets:
                 print(f" - {target}")
+        print("Database checks:")
+        print(f"  Integrity:    {db_checks.get('integrity_check', 'N/A')}")
+        print(f"  User table:   {'present' if db_checks.get('user_table_exists') else 'missing'}"
+              f" ({db_checks.get('user_count', 0)} rows)")
+        print(f"  Proxy hosts:  {'present' if db_checks.get('proxy_host_table_exists') else 'missing'}")
         if warnings:
             print("Warnings:")
             for warn in warnings:
@@ -1860,6 +1934,311 @@ def cmd_admin_access(action: str, cidr: str = None) -> None:
     sys.exit(1)
 
 
+def cmd_health_report(json_mode: bool = False) -> None:
+    """Unified health assessment with pass/warn/fail verdict per subsystem."""
+    checks = []
+
+    def add_check(name, status, detail=""):
+        checks.append({"check": name, "status": status, "detail": detail})
+
+    # 1. Docker service
+    try:
+        r = run_cmd(["systemctl", "is-active", "docker"], timeout=5)
+        state = r.stdout.strip()
+        add_check("docker_service", "pass" if state == "active" else "fail", state)
+    except Exception as e:
+        add_check("docker_service", "fail", str(e))
+
+    # 2. NPM service
+    try:
+        r = run_cmd(["systemctl", "is-active", "npm"], timeout=5)
+        state = r.stdout.strip()
+        add_check("npm_service", "pass" if state == "active" else "fail", state)
+    except Exception as e:
+        add_check("npm_service", "fail", str(e))
+
+    # 3. NPM container
+    try:
+        r = run_cmd(["docker", "compose", "ps", "--format", "json"], cwd="/opt/npm", timeout=10)
+        if r.returncode == 0 and r.stdout.strip():
+            container_running = False
+            for line in r.stdout.strip().split("\n"):
+                if line.strip():
+                    try:
+                        c = json.loads(line)
+                        if c.get("State") == "running":
+                            container_running = True
+                            break
+                    except json.JSONDecodeError:
+                        pass
+            add_check("npm_container", "pass" if container_running else "fail",
+                       "running" if container_running else "not running")
+        else:
+            add_check("npm_container", "fail", "not found")
+    except Exception as e:
+        add_check("npm_container", "fail", str(e))
+
+    # 4. Init completion
+    init_ok = Path(INIT_MARKER_FILE).exists()
+    add_check("init_completion", "pass" if init_ok else "fail",
+              "complete" if init_ok else "incomplete")
+
+    # 5. Last backup
+    sentinel_success = read_sentinel_file(SENTINEL_LAST_SUCCESS)
+    sentinel_failure = read_sentinel_file(SENTINEL_LAST_FAILURE)
+    if sentinel_success:
+        try:
+            ts_str = sentinel_success.split()[0] if sentinel_success else ""
+            last_success_dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            age_hours = (datetime.now(last_success_dt.tzinfo) - last_success_dt).total_seconds() / 3600
+            if age_hours <= 26:
+                add_check("last_backup", "pass", f"success {age_hours:.1f}h ago")
+            else:
+                add_check("last_backup", "warn", f"success {age_hours:.1f}h ago (>26h)")
+        except Exception:
+            add_check("last_backup", "pass", sentinel_success)
+    elif sentinel_failure:
+        add_check("last_backup", "fail", f"last run was failure: {sentinel_failure}")
+    else:
+        add_check("last_backup", "fail", "no backup has run")
+
+    # 6. Restore verification
+    rv_data = read_state_json(RESTORE_VERIFY_REPORT_DEFAULT)
+    if rv_data:
+        rv_status = rv_data.get("status", "unknown")
+        rv_ts = rv_data.get("generated_at_utc", "")
+        stale = False
+        try:
+            rv_dt = datetime.fromisoformat(rv_ts.replace("Z", "+00:00"))
+            age_h = (datetime.now(rv_dt.tzinfo) - rv_dt).total_seconds() / 3600
+            stale = age_h > 48
+        except Exception:
+            pass
+        if rv_status == "pass" and not stale:
+            add_check("restore_verification", "pass", rv_status)
+        elif rv_status == "fail":
+            add_check("restore_verification", "fail", rv_status)
+        else:
+            add_check("restore_verification", "warn",
+                       f"{rv_status} (stale >48h)" if stale else rv_status)
+    else:
+        add_check("restore_verification", "fail", "no verification report found")
+
+    # 7. Certificate expiry
+    threshold = read_config_int(CERT_CHECK_CONFIG, "cert-check", "threshold_days",
+                                DEFAULT_CERT_THRESHOLD_DAYS)
+    cert_summary = get_cert_expiry_summary(threshold)
+    cert_status_str = cert_summary.get("status", "none")
+    cert_days = cert_summary.get("days_remaining", None)
+    if cert_status_str == "none":
+        add_check("certificate_expiry", "pass", "no certificates managed")
+    elif cert_status_str == "unknown":
+        add_check("certificate_expiry", "warn", "unable to parse certificate expiry")
+    elif cert_days is not None and cert_days <= 7:
+        add_check("certificate_expiry", "fail", f"{cert_days}d remaining")
+    elif cert_status_str == "warn":
+        add_check("certificate_expiry", "warn",
+                   f"{cert_days}d remaining" if cert_days else cert_summary.get("message", ""))
+    else:
+        add_check("certificate_expiry", "pass",
+                   f"{cert_days}d remaining" if cert_days else cert_summary.get("message", ""))
+
+    # 8. Disk usage (/)
+    try:
+        r = run_cmd(["df", "--output=pcent", "/"], timeout=5)
+        for line in r.stdout.strip().splitlines():
+            line = line.strip().rstrip("%")
+            if line.isdigit():
+                pct = int(line)
+                if pct > 90:
+                    add_check("disk_usage", "fail", f"{pct}% used")
+                elif pct >= 80:
+                    add_check("disk_usage", "warn", f"{pct}% used")
+                else:
+                    add_check("disk_usage", "pass", f"{pct}% used")
+                break
+        else:
+            add_check("disk_usage", "warn", "unable to parse disk usage")
+    except Exception as e:
+        add_check("disk_usage", "warn", str(e))
+
+    # 9. Upgrade state
+    last_attempt = read_state_json(LAST_ATTEMPT_PATH)
+    if last_attempt:
+        attempt_status = last_attempt.get("status", "unknown")
+        if attempt_status in ("success", "complete"):
+            add_check("upgrade_state", "pass", f"last attempt: {attempt_status}")
+        else:
+            add_check("upgrade_state", "fail", f"last attempt: {attempt_status}")
+    else:
+        add_check("upgrade_state", "pass", "no upgrade attempted")
+
+    # Overall verdict
+    statuses = [c["status"] for c in checks]
+    if "fail" in statuses:
+        overall = "fail"
+    elif "warn" in statuses:
+        overall = "warn"
+    else:
+        overall = "pass"
+
+    report = {
+        "overall_status": overall,
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "checks": checks,
+    }
+
+    if json_mode:
+        print(json.dumps(report, indent=2))
+        return
+
+    print("NPM Health Report")
+    print("=" * 60)
+    for c in checks:
+        tag = {"pass": "PASS", "warn": "WARN", "fail": "FAIL"}.get(c["status"], "????")
+        print(f"  [{tag}]  {c['check']:.<30s} {c['detail']}")
+    print("=" * 60)
+    print(f"  Overall: {overall.upper()}")
+    print("")
+    if overall == "fail":
+        sys.exit(1)
+
+
+def cmd_reliability_report(json_mode: bool = False) -> None:
+    """Compute runtime reliability KPIs from sentinel files and reports."""
+    kpis = {}
+
+    # Instance uptime
+    try:
+        r = run_cmd(["cat", "/proc/uptime"], timeout=5)
+        uptime_secs = float(r.stdout.strip().split()[0])
+        kpis["instance_uptime_seconds"] = round(uptime_secs, 1)
+        days = int(uptime_secs // 86400)
+        hours = int((uptime_secs % 86400) // 3600)
+        kpis["instance_uptime_human"] = f"{days}d {hours}h"
+    except Exception:
+        kpis["instance_uptime_seconds"] = None
+        kpis["instance_uptime_human"] = "unknown"
+
+    # Last successful backup age
+    sentinel_success = read_sentinel_file(SENTINEL_LAST_SUCCESS)
+    if sentinel_success:
+        kpis["last_backup_success"] = sentinel_success
+        try:
+            ts_str = sentinel_success.split()[0]
+            last_dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            age_h = (datetime.now(last_dt.tzinfo) - last_dt).total_seconds() / 3600
+            kpis["last_backup_age_hours"] = round(age_h, 1)
+        except Exception:
+            kpis["last_backup_age_hours"] = None
+    else:
+        kpis["last_backup_success"] = None
+        kpis["last_backup_age_hours"] = None
+
+    # Backup success rate from journal (count backup sentinel writes)
+    backup_total = 0
+    backup_ok = 0
+    try:
+        r = run_cmd(
+            ["journalctl", "-u", "npm-backup.service", "--no-pager", "-o", "cat"],
+            timeout=15,
+        )
+        for line in r.stdout.splitlines():
+            if "NORTHSTAR_BACKUP" in line and "status=" in line:
+                backup_total += 1
+                if "status=success" in line:
+                    backup_ok += 1
+    except Exception:
+        pass
+    kpis["backup_total_runs"] = backup_total
+    kpis["backup_success_runs"] = backup_ok
+    kpis["backup_success_rate_pct"] = (
+        round(100.0 * backup_ok / backup_total, 1) if backup_total > 0 else None
+    )
+
+    # Restore verification pass rate from stored reports
+    reports_dir = Path(BACKUP_STATE_DIR) / "reports"
+    rv_total = 0
+    rv_pass = 0
+    if reports_dir.is_dir():
+        for rp in sorted(reports_dir.glob("restore-verify-*.json")):
+            try:
+                with open(rp, "r", encoding="utf-8") as f:
+                    rd = json.load(f)
+                rv_total += 1
+                if rd.get("status") == "pass":
+                    rv_pass += 1
+            except Exception:
+                pass
+    kpis["restore_verify_total"] = rv_total
+    kpis["restore_verify_pass"] = rv_pass
+    kpis["restore_verify_pass_rate_pct"] = (
+        round(100.0 * rv_pass / rv_total, 1) if rv_total > 0 else None
+    )
+
+    # Latest restore verification
+    rv_latest = read_state_json(RESTORE_VERIFY_REPORT_DEFAULT)
+    kpis["restore_verify_latest_status"] = rv_latest.get("status") if rv_latest else None
+    kpis["restore_verify_latest_at"] = rv_latest.get("generated_at_utc") if rv_latest else None
+
+    # Last upgrade status
+    last_attempt = read_state_json(LAST_ATTEMPT_PATH)
+    if last_attempt:
+        kpis["last_upgrade_status"] = last_attempt.get("status", "unknown")
+        kpis["last_upgrade_at"] = last_attempt.get("timestamp", last_attempt.get("started_at"))
+    else:
+        kpis["last_upgrade_status"] = None
+        kpis["last_upgrade_at"] = None
+
+    # Rollback readiness
+    lkg = read_state_json(LAST_KNOWN_GOOD_PATH)
+    rollback_ready = False
+    if lkg:
+        bp = lkg.get("backup_path", "")
+        rollback_ready = bool(bp and Path(bp).exists())
+    kpis["rollback_ready"] = rollback_ready
+
+    report = {
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "kpis": kpis,
+    }
+
+    if json_mode:
+        print(json.dumps(report, indent=2))
+        return
+
+    print("NPM Reliability Report")
+    print("=" * 60)
+    print(f"  Instance uptime:            {kpis['instance_uptime_human']}")
+    print("")
+    print("  Backup")
+    print("  " + "-" * 56)
+    if kpis["backup_success_rate_pct"] is not None:
+        print(f"    Success rate:             {kpis['backup_success_rate_pct']}%"
+              f"  ({kpis['backup_success_runs']}/{kpis['backup_total_runs']} runs)")
+    else:
+        print("    Success rate:             N/A (no runs recorded)")
+    if kpis["last_backup_age_hours"] is not None:
+        print(f"    Last success age:         {kpis['last_backup_age_hours']}h")
+    else:
+        print("    Last success age:         never")
+    print("")
+    print("  Restore Verification")
+    print("  " + "-" * 56)
+    if kpis["restore_verify_pass_rate_pct"] is not None:
+        print(f"    Pass rate:                {kpis['restore_verify_pass_rate_pct']}%"
+              f"  ({kpis['restore_verify_pass']}/{kpis['restore_verify_total']} reports)")
+    else:
+        print("    Pass rate:                N/A (no reports)")
+    print(f"    Latest result:            {kpis['restore_verify_latest_status'] or 'none'}")
+    print("")
+    print("  Upgrade & Rollback")
+    print("  " + "-" * 56)
+    print(f"    Last upgrade status:      {kpis['last_upgrade_status'] or 'no upgrade attempted'}")
+    print(f"    Rollback ready:           {'yes' if kpis['rollback_ready'] else 'no'}")
+    print("=" * 60)
+
+
 def main():
     """Main entry point for npm-helper CLI."""
     parser = argparse.ArgumentParser(
@@ -2015,6 +2394,22 @@ def main():
         action="store_true",
         help="Output machine-readable JSON only"
     )
+
+    # health-report subcommand
+    parser_health = subparsers.add_parser("health-report", help="Unified pass/warn/fail health assessment")
+    parser_health.add_argument(
+        "--json",
+        action="store_true",
+        help="Output machine-readable JSON only"
+    )
+
+    # reliability-report subcommand
+    parser_rel = subparsers.add_parser("reliability-report", help="Runtime reliability KPIs from instance history")
+    parser_rel.add_argument(
+        "--json",
+        action="store_true",
+        help="Output machine-readable JSON only"
+    )
     
     # Parse arguments
     args = parser.parse_args()
@@ -2067,6 +2462,10 @@ def main():
         )
     elif args.command == "diagnostics":
         cmd_diagnostics(json_mode=getattr(args, "json", False))
+    elif args.command == "health-report":
+        cmd_health_report(json_mode=getattr(args, "json", False))
+    elif args.command == "reliability-report":
+        cmd_reliability_report(json_mode=getattr(args, "json", False))
     else:
         parser.print_help()
         sys.exit(1)
