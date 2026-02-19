@@ -2117,8 +2117,109 @@ def cmd_health_report(json_mode: bool = False) -> None:
         sys.exit(1)
 
 
-def cmd_reliability_report(json_mode: bool = False) -> None:
+KPI_HISTORY_PATH = f"{BACKUP_STATE_DIR}/reports/kpi-history.jsonl"
+KPI_HISTORY_MAX_ENTRIES = 90
+
+
+def _append_kpi_snapshot(kpis: dict) -> None:
+    """Append a KPI snapshot to the JSONL history file and prune old entries."""
+    history_path = Path(KPI_HISTORY_PATH)
+    history_path.parent.mkdir(parents=True, exist_ok=True)
+    entry = json.dumps({"timestamp": datetime.utcnow().isoformat() + "Z", "kpis": kpis})
+    try:
+        lines = []
+        if history_path.exists():
+            lines = history_path.read_text(encoding="utf-8").strip().splitlines()
+        lines.append(entry)
+        if len(lines) > KPI_HISTORY_MAX_ENTRIES:
+            lines = lines[-KPI_HISTORY_MAX_ENTRIES:]
+        history_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        os.chmod(history_path, 0o640)
+    except Exception:
+        pass
+
+
+def _print_kpi_trend(json_mode: bool = False) -> None:
+    """Read KPI history and print trend summary."""
+    history_path = Path(KPI_HISTORY_PATH)
+    if not history_path.exists():
+        if json_mode:
+            print(json.dumps({"error": "no KPI history found", "snapshots": 0}))
+        else:
+            print("No KPI history found. History is captured daily via the health-report timer.")
+        return
+
+    entries = []
+    for line in history_path.read_text(encoding="utf-8").strip().splitlines():
+        try:
+            entries.append(json.load(__import__("io").StringIO(line)))
+        except Exception:
+            pass
+
+    if not entries:
+        if json_mode:
+            print(json.dumps({"error": "no valid KPI entries", "snapshots": 0}))
+        else:
+            print("No valid KPI entries found.")
+        return
+
+    now = datetime.utcnow()
+    last_7d = [e for e in entries if _entry_age_days(e, now) <= 7]
+    last_30d = [e for e in entries if _entry_age_days(e, now) <= 30]
+
+    def _avg(entries_subset, key):
+        vals = [e.get("kpis", {}).get(key) for e in entries_subset if e.get("kpis", {}).get(key) is not None]
+        return round(sum(vals) / len(vals), 1) if vals else None
+
+    def _count_true(entries_subset, key):
+        return sum(1 for e in entries_subset if e.get("kpis", {}).get(key))
+
+    trend = {
+        "total_snapshots": len(entries),
+        "last_7d_snapshots": len(last_7d),
+        "last_30d_snapshots": len(last_30d),
+        "backup_success_rate_7d_avg": _avg(last_7d, "backup_success_rate_pct"),
+        "backup_success_rate_30d_avg": _avg(last_30d, "backup_success_rate_pct"),
+        "restore_verify_pass_rate_7d_avg": _avg(last_7d, "restore_verify_pass_rate_pct"),
+        "restore_verify_pass_rate_30d_avg": _avg(last_30d, "restore_verify_pass_rate_pct"),
+        "rollback_ready_30d_count": _count_true(last_30d, "rollback_ready"),
+        "latest": entries[-1].get("kpis", {}) if entries else {},
+    }
+
+    if json_mode:
+        print(json.dumps({"generated_at": now.isoformat() + "Z", "trend": trend}, indent=2))
+        return
+
+    print(f"NPM Reliability Trend (last 30 days, {len(last_30d)} snapshots)")
+    print("=" * 60)
+    br_30 = trend["backup_success_rate_30d_avg"]
+    br_latest = entries[-1].get("kpis", {}).get("backup_success_rate_pct") if entries else None
+    print(f"  Backup success rate:        {f'{br_30}%' if br_30 is not None else 'N/A':>8s} (avg)"
+          f" / {f'{br_latest}%' if br_latest is not None else 'N/A'} (latest)")
+    rv_30 = trend["restore_verify_pass_rate_30d_avg"]
+    rv_latest = entries[-1].get("kpis", {}).get("restore_verify_pass_rate_pct") if entries else None
+    print(f"  Restore verify pass rate:   {f'{rv_30}%' if rv_30 is not None else 'N/A':>8s} (avg)"
+          f" / {f'{rv_latest}%' if rv_latest is not None else 'N/A'} (latest)")
+    rb_count = trend["rollback_ready_30d_count"]
+    print(f"  Rollback ready:             {rb_count}/{len(last_30d)} days")
+    print("=" * 60)
+
+
+def _entry_age_days(entry: dict, now) -> float:
+    try:
+        ts = entry.get("timestamp", "")
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).replace(tzinfo=None)
+        return (now - dt).total_seconds() / 86400
+    except Exception:
+        return 9999
+
+
+def cmd_reliability_report(json_mode: bool = False, history: bool = False) -> None:
     """Compute runtime reliability KPIs from sentinel files and reports."""
+    if history:
+        _print_kpi_trend(json_mode)
+        return
+
     kpis = {}
 
     # Instance uptime
@@ -2210,6 +2311,8 @@ def cmd_reliability_report(json_mode: bool = False) -> None:
         bp = lkg.get("backup_path", "")
         rollback_ready = bool(bp and Path(bp).exists())
     kpis["rollback_ready"] = rollback_ready
+
+    _append_kpi_snapshot(kpis)
 
     report = {
         "generated_at": datetime.utcnow().isoformat() + "Z",
@@ -2631,6 +2734,11 @@ def main():
         action="store_true",
         help="Output machine-readable JSON only"
     )
+    parser_rel.add_argument(
+        "--history",
+        action="store_true",
+        help="Show KPI trend summary from daily snapshots"
+    )
 
     # compliance-report subcommand
     parser_comp = subparsers.add_parser("compliance-report", help="Runtime CIS benchmark compliance verification")
@@ -2694,7 +2802,10 @@ def main():
     elif args.command == "health-report":
         cmd_health_report(json_mode=getattr(args, "json", False))
     elif args.command == "reliability-report":
-        cmd_reliability_report(json_mode=getattr(args, "json", False))
+        cmd_reliability_report(
+            json_mode=getattr(args, "json", False),
+            history=getattr(args, "history", False),
+        )
     elif args.command == "compliance-report":
         cmd_compliance_report(json_mode=getattr(args, "json", False))
     else:

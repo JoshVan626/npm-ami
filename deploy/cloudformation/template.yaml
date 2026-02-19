@@ -89,6 +89,8 @@ Resources:
             Principal:
               Service: ec2.amazonaws.com
             Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
       Policies:
         - PolicyName: NpmHardenedEditionInstancePolicy
           PolicyDocument:
@@ -120,6 +122,19 @@ Resources:
                       - !Sub 'arn:aws:s3:::${BackupBucketName}/${BackupPrefix}*'
                       - !Sub 'arn:aws:s3:::${BackupBucketName}/*'
                   - !Ref AWS::NoValue
+              - Sid: SecretsManagerCredentials
+                Effect: Allow
+                Action:
+                  - secretsmanager:CreateSecret
+                  - secretsmanager:PutSecretValue
+                  - secretsmanager:DescribeSecret
+                  - secretsmanager:TagResource
+                Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:northstar/npm/*'
+              - Sid: EC2InstanceTagging
+                Effect: Allow
+                Action:
+                  - ec2:CreateTags
+                Resource: '*'
 
   InstanceProfile:
     Type: AWS::IAM::InstanceProfile

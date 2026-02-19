@@ -5,7 +5,12 @@ This folder contains copy-paste Infrastructure-as-Code templates to launch **Ngi
 These templates create:
 - An EC2 instance (`t3.small` by default)
 - A security group with **public 80/443** and **restricted admin ports (22/81)**. Review and tighten for your environment; **do not expose 81 publicly**.
-- An instance role + instance profile with permissions for optional CloudWatch Logs/Metrics and optional S3 backups
+- An instance role + instance profile with permissions for:
+  - CloudWatch Logs/Metrics
+  - Optional S3 backups (scoped to your bucket/prefix)
+  - AWS Secrets Manager (`northstar/npm/*` secrets for credential governance)
+  - EC2 instance tagging (fleet visibility metadata)
+  - AWS Systems Manager Session Manager (no-SSH management)
 
 ### Terraform
 
@@ -30,7 +35,8 @@ Notes:
 - **Admin port 81 has two gates:** (1) the EC2 security group must allow your source CIDR on `81/tcp`, and (2) the instance firewall/UFW must allow it, typically managed via `npm-helper admin-access` or by using an SSH tunnel.
 - **Allowing 0.0.0.0/0 for admin ports is blocked by default.** If you must override (not recommended), set `-var allow_admin_from_anywhere=true`.
 - **Optional S3 scoping:** set `-var backup_bucket_name` and (optionally) `-var backup_prefix` to scope the instance role to your backup bucket/prefix instead of `*`.
-- **Optional IAM profile attach:** set `create_instance_profile=true` to attach CloudWatch/S3 backup permissions.
+- **Optional IAM profile attach:** set `create_instance_profile=true` to attach CloudWatch/S3/Secrets Manager/EC2 tagging/SSM permissions.
+- **SSM Session Manager:** when the instance profile is attached, SSM Session Manager is enabled automatically. Connect with `aws ssm start-session --target <instance-id>` -- no SSH key or port 22 required.
 - **Optional EIP:** set `associate_eip=true` to allocate and attach an Elastic IP.
 - **Optional root EBS tuning:** set `root_volume_size` and `root_volume_type`.
 

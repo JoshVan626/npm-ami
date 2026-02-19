@@ -1,0 +1,326 @@
+#!/usr/bin/env bash
+# NPM Migration Import Script
+# Imports NPM data from an existing installation (DIY Docker, Bitnami, or
+# another vendor's AMI) into the Northstar AMI directory structure.
+
+set -euo pipefail
+
+DATA_DIR="/opt/npm/data"
+LETSENCRYPT_DIR="/opt/npm/letsencrypt"
+DB_FILE="$DATA_DIR/database.sqlite"
+
+usage() {
+    cat <<'EOF'
+Usage: npm-migrate-import <source>
+
+Import NPM data from an existing installation into this AMI.
+
+<source> can be:
+  - A directory containing database.sqlite (e.g., /tmp/npm-data/)
+  - A .tar.gz archive containing opt/npm/data/ structure
+
+The script will:
+  1. Validate the source data structure
+  2. Stop the NPM stack and create a safety backup
+  3. Import data into /opt/npm/data and /opt/npm/letsencrypt
+  4. Fix ownership and permissions
+  5. Start NPM and run application-level validation
+
+Prerequisites:
+  - Transfer your existing NPM data directory or backup archive to this
+    instance first (via SCP, S3, or other method).
+  - The source must contain at minimum a database.sqlite file.
+
+Examples:
+  sudo npm-migrate-import /tmp/npm-data/
+  sudo npm-migrate-import /tmp/npm-export.tar.gz
+EOF
+    exit 0
+}
+
+if [[ $# -lt 1 ]] || [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]]; then
+    usage
+fi
+
+SOURCE="$1"
+
+if [[ "$(id -u)" -ne 0 ]]; then
+    echo "Error: This command requires root privileges."
+    echo "Run: sudo npm-migrate-import $SOURCE"
+    exit 1
+fi
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "NPM Migration Import"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "Source: $SOURCE"
+echo ""
+
+START_TIME=$(date +%s)
+IS_ARCHIVE=false
+TEMP_EXTRACT=""
+
+# Step 1: Validate source
+echo "[1/8] Validating source data..."
+
+if [[ ! -e "$SOURCE" ]]; then
+    echo "  ✗ Source not found: $SOURCE"
+    exit 1
+fi
+
+if [[ -f "$SOURCE" ]] && [[ "$SOURCE" =~ \.(tar\.gz|tgz)$ ]]; then
+    IS_ARCHIVE=true
+    TEMP_EXTRACT=$(mktemp -d /tmp/npm-migrate-XXXXXX)
+    echo "  Extracting archive to temporary directory..."
+    if ! tar -xzf "$SOURCE" -C "$TEMP_EXTRACT" 2>&1; then
+        echo "  ✗ Failed to extract archive"
+        rm -rf "$TEMP_EXTRACT"
+        exit 1
+    fi
+
+    # Find the database.sqlite in the extracted content
+    DB_FOUND=$(find "$TEMP_EXTRACT" -name "database.sqlite" -type f 2>/dev/null | head -1)
+    if [[ -z "$DB_FOUND" ]]; then
+        echo "  ✗ No database.sqlite found in archive"
+        rm -rf "$TEMP_EXTRACT"
+        exit 1
+    fi
+    SOURCE_DATA_DIR=$(dirname "$DB_FOUND")
+    SOURCE_LE_DIR=""
+    # Look for letsencrypt directory relative to the data directory
+    PARENT=$(dirname "$SOURCE_DATA_DIR")
+    if [[ -d "$PARENT/letsencrypt" ]]; then
+        SOURCE_LE_DIR="$PARENT/letsencrypt"
+    fi
+    echo "  ✓ Archive extracted; database found at: $DB_FOUND"
+elif [[ -d "$SOURCE" ]]; then
+    if [[ -f "$SOURCE/database.sqlite" ]]; then
+        SOURCE_DATA_DIR="$SOURCE"
+        SOURCE_LE_DIR=""
+        PARENT=$(dirname "$SOURCE")
+        if [[ -d "$PARENT/letsencrypt" ]]; then
+            SOURCE_LE_DIR="$PARENT/letsencrypt"
+        elif [[ -d "$SOURCE/../letsencrypt" ]]; then
+            SOURCE_LE_DIR="$(cd "$SOURCE/../letsencrypt" && pwd)"
+        fi
+        echo "  ✓ Source directory validated; database found"
+    else
+        echo "  ✗ No database.sqlite found in $SOURCE"
+        echo "    Expected: $SOURCE/database.sqlite"
+        exit 1
+    fi
+else
+    echo "  ✗ Source must be a directory or a .tar.gz archive"
+    exit 1
+fi
+
+# Step 2: Database integrity pre-check
+echo ""
+echo "[2/8] Running database integrity pre-check..."
+
+DB_SOURCE="$SOURCE_DATA_DIR/database.sqlite"
+IMPORT_CHECKS_PASSED=0
+
+if command -v sqlite3 &>/dev/null; then
+    INTEGRITY=$(sqlite3 "$DB_SOURCE" "PRAGMA integrity_check;" 2>&1 || echo "error")
+    if [[ "$INTEGRITY" == "ok" ]]; then
+        echo "  ✓ Database integrity check passed"
+        IMPORT_CHECKS_PASSED=$((IMPORT_CHECKS_PASSED + 1))
+    else
+        echo "  ⚠ Database integrity check: $INTEGRITY"
+    fi
+
+    USER_COUNT=$(sqlite3 "$DB_SOURCE" "SELECT COUNT(*) FROM user;" 2>/dev/null || echo "0")
+    if [[ "$USER_COUNT" -gt 0 ]] 2>/dev/null; then
+        echo "  ✓ User table: $USER_COUNT user(s) found"
+        IMPORT_CHECKS_PASSED=$((IMPORT_CHECKS_PASSED + 1))
+    else
+        echo "  ⚠ User table is empty or unreadable"
+    fi
+
+    TABLE_EXISTS=$(sqlite3 "$DB_SOURCE" "SELECT name FROM sqlite_master WHERE type='table' AND name='proxy_host';" 2>/dev/null || echo "")
+    if [[ "$TABLE_EXISTS" == "proxy_host" ]]; then
+        echo "  ✓ proxy_host table present"
+        IMPORT_CHECKS_PASSED=$((IMPORT_CHECKS_PASSED + 1))
+
+        HOST_COUNT=$(sqlite3 "$DB_SOURCE" "SELECT COUNT(*) FROM proxy_host;" 2>/dev/null || echo "0")
+        echo "  ✓ Proxy hosts found: $HOST_COUNT"
+    else
+        echo "  ⚠ proxy_host table not found"
+    fi
+else
+    echo "  ⚠ sqlite3 not available; skipping database pre-checks"
+fi
+
+# Step 3: Stop NPM stack
+echo ""
+echo "[3/8] Stopping NPM stack..."
+if systemctl stop npm 2>&1; then
+    echo "  ✓ NPM service stopped"
+else
+    if ! systemctl is-active --quiet npm 2>/dev/null; then
+        echo "  ⚠ NPM service was already stopped"
+    else
+        echo "  ✗ Failed to stop NPM service"
+        exit 1
+    fi
+fi
+sleep 2
+
+# Step 4: Safety backup of current data
+echo ""
+echo "[4/8] Creating safety backup of current data..."
+
+SAFETY_TS=$(date +%Y%m%d%H%M%S)
+SAFETY_CREATED=false
+
+if [[ -d "$DATA_DIR" ]] && [[ -n "$(ls -A "$DATA_DIR" 2>/dev/null)" ]]; then
+    mv "$DATA_DIR" "${DATA_DIR}.pre-migrate-${SAFETY_TS}"
+    SAFETY_CREATED=true
+    echo "  ✓ Data backed up to ${DATA_DIR}.pre-migrate-${SAFETY_TS}"
+else
+    echo "  ℹ No existing data to backup"
+fi
+
+if [[ -d "$LETSENCRYPT_DIR" ]] && [[ -n "$(ls -A "$LETSENCRYPT_DIR" 2>/dev/null)" ]]; then
+    mv "$LETSENCRYPT_DIR" "${LETSENCRYPT_DIR}.pre-migrate-${SAFETY_TS}"
+    SAFETY_CREATED=true
+    echo "  ✓ Let's Encrypt backed up to ${LETSENCRYPT_DIR}.pre-migrate-${SAFETY_TS}"
+fi
+
+# Step 5: Copy source data
+echo ""
+echo "[5/8] Importing source data..."
+
+mkdir -p "$DATA_DIR"
+cp -a "$SOURCE_DATA_DIR"/. "$DATA_DIR"/
+echo "  ✓ Data directory imported"
+
+if [[ -n "$SOURCE_LE_DIR" ]] && [[ -d "$SOURCE_LE_DIR" ]]; then
+    mkdir -p "$LETSENCRYPT_DIR"
+    cp -a "$SOURCE_LE_DIR"/. "$LETSENCRYPT_DIR"/
+    echo "  ✓ Let's Encrypt directory imported"
+else
+    mkdir -p "$LETSENCRYPT_DIR"
+    echo "  ℹ No Let's Encrypt directory found in source; created empty directory"
+fi
+
+# Step 6: Fix ownership and permissions
+echo ""
+echo "[6/8] Setting ownership and permissions..."
+chown -R root:root "$DATA_DIR" 2>/dev/null && echo "  ✓ Data directory ownership set" || echo "  ⚠ Failed to set data ownership"
+chown -R root:root "$LETSENCRYPT_DIR" 2>/dev/null && echo "  ✓ Let's Encrypt ownership set" || echo "  ⚠ Failed to set LE ownership"
+
+# Step 7: Start NPM stack and health check
+echo ""
+echo "[7/8] Starting NPM stack..."
+if systemctl start npm 2>&1; then
+    echo "  ✓ NPM service started"
+else
+    echo "  ✗ Failed to start NPM service"
+    exit 1
+fi
+sleep 3
+
+MAX_WAIT=60
+WAIT_INTERVAL=2
+ELAPSED=0
+HEALTH_OK=false
+
+echo "  Waiting for NPM to be ready (max ${MAX_WAIT}s)..."
+while [[ $ELAPSED -lt $MAX_WAIT ]]; do
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost:81/api 2>/dev/null || echo "000")
+    if [[ "$HTTP_CODE" =~ ^[23][0-9]{2}$ ]]; then
+        HEALTH_OK=true
+        echo "  ✓ Health check passed (HTTP $HTTP_CODE)"
+        break
+    fi
+    sleep $WAIT_INTERVAL
+    ELAPSED=$((ELAPSED + WAIT_INTERVAL))
+done
+
+if [[ "$HEALTH_OK" == false ]]; then
+    echo "  ⚠ Health check did not pass within ${MAX_WAIT}s"
+fi
+
+# Step 8: Post-import application validation
+echo ""
+echo "[8/8] Running post-import application validation..."
+
+VALIDATE_START=$(date +%s)
+VAL_PASSED=0
+VAL_TOTAL=0
+
+VAL_TOTAL=$((VAL_TOTAL + 1))
+if [[ -f "$DB_FILE" ]] && command -v sqlite3 &>/dev/null; then
+    IC=$(sqlite3 "$DB_FILE" "PRAGMA integrity_check;" 2>&1 || echo "error")
+    if [[ "$IC" == "ok" ]]; then
+        echo "  ✓ Database integrity check passed"
+        VAL_PASSED=$((VAL_PASSED + 1))
+    else
+        echo "  ⚠ Database integrity: $IC"
+    fi
+else
+    echo "  ⚠ Database check skipped"
+fi
+
+VAL_TOTAL=$((VAL_TOTAL + 1))
+if [[ -f "$DB_FILE" ]] && command -v sqlite3 &>/dev/null; then
+    UC=$(sqlite3 "$DB_FILE" "SELECT COUNT(*) FROM user;" 2>/dev/null || echo "0")
+    if [[ "$UC" -gt 0 ]] 2>/dev/null; then
+        echo "  ✓ User table: $UC user(s)"
+        VAL_PASSED=$((VAL_PASSED + 1))
+    else
+        echo "  ⚠ User table empty or unreadable"
+    fi
+fi
+
+VAL_TOTAL=$((VAL_TOTAL + 1))
+API_RESP=$(curl -s --max-time 5 http://localhost:81/api/nginx/proxy-hosts 2>/dev/null || echo "")
+if echo "$API_RESP" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+    echo "  ✓ API /api/nginx/proxy-hosts returns valid JSON"
+    VAL_PASSED=$((VAL_PASSED + 1))
+else
+    echo "  ⚠ API check did not return valid JSON (may require auth)"
+fi
+
+VALIDATE_END=$(date +%s)
+VALIDATE_DURATION=$((VALIDATE_END - VALIDATE_START))
+END_TIME=$(date +%s)
+TOTAL_DURATION=$((END_TIME - START_TIME))
+
+echo ""
+if [[ "$VAL_PASSED" -eq "$VAL_TOTAL" ]] && [[ "$HEALTH_OK" == true ]]; then
+    echo "NORTHSTAR_MIGRATE_IMPORT status=pass source=${SOURCE} duration_s=${TOTAL_DURATION}"
+else
+    echo "NORTHSTAR_MIGRATE_IMPORT status=warn source=${SOURCE} duration_s=${TOTAL_DURATION}"
+fi
+
+# Cleanup
+if [[ -n "$TEMP_EXTRACT" ]] && [[ -d "$TEMP_EXTRACT" ]]; then
+    rm -rf "$TEMP_EXTRACT"
+fi
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "✓ Migration import completed ($VAL_PASSED/$VAL_TOTAL checks passed)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "Next steps:"
+echo "  1. Log into the NPM admin UI and verify your proxy hosts and certificates"
+echo "  2. Run: sudo npm-helper health-report"
+echo "  3. Run: sudo npm-helper compliance-report"
+echo "  4. Update DNS records if needed"
+echo ""
+
+if [[ "$SAFETY_CREATED" == true ]]; then
+    echo "Pre-migration backup stored at:"
+    [[ -d "${DATA_DIR}.pre-migrate-${SAFETY_TS}" ]] && echo "  ${DATA_DIR}.pre-migrate-${SAFETY_TS}"
+    [[ -d "${LETSENCRYPT_DIR}.pre-migrate-${SAFETY_TS}" ]] && echo "  ${LETSENCRYPT_DIR}.pre-migrate-${SAFETY_TS}"
+    echo ""
+    echo "To roll back: stop npm, remove current data, rename .pre-migrate dirs back, start npm."
+    echo ""
+fi
+
+exit 0

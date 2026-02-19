@@ -210,6 +210,29 @@ data "aws_iam_policy_document" "instance" {
       }
     }
   }
+
+  statement {
+    sid    = "SecretsManagerCredentials"
+    effect = "Allow"
+
+    actions = [
+      "secretsmanager:CreateSecret",
+      "secretsmanager:PutSecretValue",
+      "secretsmanager:DescribeSecret",
+      "secretsmanager:TagResource"
+    ]
+
+    resources = ["arn:aws:secretsmanager:*:*:secret:northstar/npm/*"]
+  }
+
+  statement {
+    sid    = "EC2InstanceTagging"
+    effect = "Allow"
+
+    actions = ["ec2:CreateTags"]
+
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role_policy" "instance" {
@@ -217,6 +240,12 @@ resource "aws_iam_role_policy" "instance" {
   name   = "npm-hardened-edition-instance-policy"
   role   = aws_iam_role.instance[0].id
   policy = data.aws_iam_policy_document.instance[0].json
+}
+
+resource "aws_iam_role_policy_attachment" "ssm_core" {
+  count      = var.create_instance_profile ? 1 : 0
+  role       = aws_iam_role.instance[0].name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
 resource "aws_iam_instance_profile" "instance" {

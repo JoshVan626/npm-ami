@@ -20,6 +20,8 @@ Commands:
   health-report [--json]     Unified pass/warn/fail health assessment
   reliability-report [--json] Runtime reliability KPIs
   compliance-report [--json]  Runtime CIS benchmark verification
+  upgrade-ami                Blue/green AMI upgrade checklist
+  migrate-import <path>      Import data from existing NPM installation
 
 Examples:
   sudo northstar status
@@ -71,6 +73,12 @@ case "$cmd" in
     ;;
   compliance-report)
     exec npm-helper compliance-report "$@"
+    ;;
+  upgrade-ami)
+    exec npm-upgrade-ami "$@"
+    ;;
+  migrate-import)
+    exec npm-migrate-import "$@"
     ;;
   -h|--help|help)
     usage

@@ -6,5 +6,6 @@ Wants=npm.service
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/npm-helper health-report
+ExecStartPost=/usr/local/bin/npm-helper reliability-report
 StandardOutput=journal
 StandardError=journal

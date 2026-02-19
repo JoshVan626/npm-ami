@@ -28,50 +28,71 @@ sudo apt-get upgrade
 
 ---
 
-## 2. Upgrading to a newer AMI version
+## 2. Upgrading to a newer AMI version (recommended: blue/green)
 
-When Northstar Cloud Solutions releases a new version of the AMI (e.g., with updated NPM Docker image, security patches, or new features), you can upgrade by launching a new instance from the newer AMI and migrating your data.
+When Northstar Cloud Solutions releases a new version of the AMI (e.g., with updated NPM Docker image, security patches, or new features), the **recommended** approach is an immutable blue/green replacement: launch a new instance from the newer AMI, restore data, verify, and cut over traffic.
 
-### Recommended upgrade workflow
+### Automated upgrade assistant
+
+The `npm-upgrade-ami` command automates the preparation phase and generates a step-by-step checklist with copy-paste commands:
+
+```bash
+sudo npm-upgrade-ami
+sudo npm-upgrade-ami --checklist-file /tmp/upgrade-checklist.txt
+```
+
+Or via the wrapper:
+
+```bash
+sudo northstar upgrade-ami
+```
+
+This ensures a fresh backup exists, collects instance metadata, and generates commands for launching the replacement, restoring data, verifying health, cutting over traffic, and decommissioning the old instance.
+
+### Manual upgrade workflow
+
+If you prefer to do it manually:
 
 1. **Backup your current instance:**
-   ```bash
-   sudo npm-backup
-   ```
-   
-   If you have S3 configured, the backup will be uploaded automatically. Otherwise, copy the backup file from `/var/backups/` to a safe location.
+
+```bash
+sudo npm-backup
+```
+
+If you have S3 configured, the backup will be uploaded automatically. Otherwise, copy the backup file from `/var/backups/` to a safe location.
 
 2. **Launch a new instance from the newer AMI:**
-   - In AWS Console, select the latest AMI version
+   - Use the Terraform/CloudFormation templates in `deploy/`, or launch manually via the AWS Console
    - Use the same instance type (or upgrade if needed)
    - Configure security groups and networking as before
 
-3. **Test the new instance:**
-   - Verify the new instance boots correctly
-   - Check that NPM admin UI is accessible
-   - Confirm CloudWatch logs and metrics are working
-   - Test basic functionality before migrating data
+3. **Wait for first-boot initialization and verify:**
+
+```bash
+sudo npm-helper status
+```
 
 4. **Restore your data to the new instance:**
-   ```bash
-   # Copy backup file to new instance (via S3, scp, or other method)
-   sudo npm-restore /path/to/npm-YYYYMMDDHHMMSS.tar.gz
-   ```
+
+```bash
+sudo npm-restore /path/to/npm-YYYYMMDDHHMMSS.tar.gz
+```
 
 5. **Verify everything works:**
-   - Log into NPM admin UI
-   - Check that all proxy hosts are present
-   - Verify SSL certificates are intact
-   - Test a few proxy hosts to ensure routing works
 
-6. **Switch traffic (if applicable):**
-   - Update DNS records to point to the new instance
-   - Update load balancer targets
-   - Monitor for any issues
+```bash
+sudo npm-helper health-report
+sudo npm-helper compliance-report
+```
+
+Also log into the NPM admin UI and check that all proxy hosts and certificates are present.
+
+6. **Switch traffic:**
+   - Reassociate an Elastic IP, or update DNS records to point to the new instance
 
 7. **Keep old instance running temporarily:**
    - Don't terminate the old instance immediately
-   - Keep it running for a few days as a rollback option
+   - Keep it stopped for a few days as a rollback option
    - Once confident, terminate the old instance
 
 ### Rollback considerations

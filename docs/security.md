@@ -14,9 +14,10 @@ This AMI ships with a conservative security baseline applied out of the box.
 
 **Implications:**
 
-- You **must** use SSH keys to access the instance.
+- You **must** use SSH keys to access the instance (or use AWS Systems Manager Session Manager as a no-SSH alternative).
 - Logging in directly as `root` via SSH is disabled.
 - You should SSH as `ubuntu` (or another user you configure) and use `sudo`.
+- **SSM Session Manager:** For organizations that prohibit SSH, the AMI supports SSM Session Manager when the `AmazonSSMManagedInstanceCore` managed policy is attached. This allows `aws ssm start-session` without opening port 22. See [`docs/operations.md`](./operations.md) for details.
 - Initial admin credentials are stored in `/root/.northstar/npm-admin-credentials` (root-only, `0600`). Retrieve them with `sudo npm-helper show-creds` and rotate the password after first login.
 
 ---

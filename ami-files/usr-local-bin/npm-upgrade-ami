@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+# NPM Blue/Green AMI Upgrade Assistant
+# Prepares a fresh backup and generates a step-by-step checklist for
+# launching a replacement instance from a newer AMI version.
+
+set -euo pipefail
+
+BACKUP_DIR="/var/backups"
+BACKUP_CONFIG="/etc/npm-backup.conf"
+S3_BUCKET=""
+CHECKLIST_FILE=""
+MAX_BACKUP_AGE_SECONDS=3600
+
+usage() {
+    cat <<'EOF'
+Usage: npm-upgrade-ami [OPTIONS]
+
+Prepare for an immutable (blue/green) AMI upgrade by ensuring a fresh backup
+exists and generating a step-by-step migration checklist.
+
+Options:
+  --checklist-file <path>   Write the checklist to a file (default: stdout only)
+  -h, --help                Show this help message
+
+The checklist includes commands to launch a new instance, restore the backup,
+verify health, and cut over traffic. It does NOT launch instances automatically.
+EOF
+    exit 0
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --checklist-file) CHECKLIST_FILE="$2"; shift 2 ;;
+        -h|--help) usage ;;
+        *) echo "Error: Unknown option '$1'"; usage ;;
+    esac
+done
+
+if [[ "$(id -u)" -ne 0 ]]; then
+    echo "Error: This command requires root privileges."
+    echo "Run: sudo npm-upgrade-ami"
+    exit 1
+fi
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "NPM Blue/Green AMI Upgrade Assistant"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Read backup config
+if [[ -f "$BACKUP_CONFIG" ]]; then
+    eval "$(grep -E '^\s*(local_backup_dir|s3_bucket)\s*=' "$BACKUP_CONFIG" | sed 's/\s*=\s*/=/' | sed 's/^/CONF_/')" 2>/dev/null || true
+    BACKUP_DIR="${CONF_local_backup_dir:-$BACKUP_DIR}"
+    S3_BUCKET="${CONF_s3_bucket:-}"
+fi
+
+# Step 1: Ensure a fresh backup exists
+echo "[1/3] Checking for a recent backup..."
+
+LATEST_BACKUP=""
+NEED_BACKUP=true
+
+if [[ -d "$BACKUP_DIR" ]]; then
+    LATEST=$(find "$BACKUP_DIR" -maxdepth 1 -name "npm-*.tar.gz" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1)
+    if [[ -n "$LATEST" ]]; then
+        LATEST_TS=$(echo "$LATEST" | cut -d' ' -f1 | cut -d'.' -f1)
+        LATEST_BACKUP=$(echo "$LATEST" | cut -d' ' -f2-)
+        NOW_TS=$(date +%s)
+        AGE=$((NOW_TS - LATEST_TS))
+        if [[ $AGE -le $MAX_BACKUP_AGE_SECONDS ]]; then
+            echo "  ✓ Recent backup found (${AGE}s old): $LATEST_BACKUP"
+            NEED_BACKUP=false
+        else
+            echo "  ⚠ Latest backup is $(( AGE / 60 )) minutes old (threshold: $(( MAX_BACKUP_AGE_SECONDS / 60 )) min)"
+        fi
+    fi
+fi
+
+if [[ "$NEED_BACKUP" == true ]]; then
+    echo "  Creating a fresh backup..."
+    if command -v npm-backup &>/dev/null; then
+        npm-backup
+        LATEST=$(find "$BACKUP_DIR" -maxdepth 1 -name "npm-*.tar.gz" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1)
+        LATEST_BACKUP=$(echo "$LATEST" | cut -d' ' -f2-)
+        echo "  ✓ Fresh backup created: $LATEST_BACKUP"
+    else
+        echo "  ✗ npm-backup not found. Create a backup manually before proceeding."
+        exit 1
+    fi
+fi
+
+BACKUP_SIZE=$(du -h "$LATEST_BACKUP" 2>/dev/null | cut -f1)
+
+# Step 2: Collect instance metadata
+echo ""
+echo "[2/3] Collecting instance metadata..."
+
+INSTANCE_ID=""
+REGION=""
+AZ=""
+CURRENT_AMI=""
+
+TOKEN=$(curl -sS -m 1 -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60" 2>/dev/null || echo "")
+if [[ -n "$TOKEN" ]]; then
+    INSTANCE_ID=$(curl -sS -m 1 -H "X-aws-ec2-metadata-token: $TOKEN" "http://169.254.169.254/latest/meta-data/instance-id" 2>/dev/null || echo "unknown")
+    AZ=$(curl -sS -m 1 -H "X-aws-ec2-metadata-token: $TOKEN" "http://169.254.169.254/latest/meta-data/placement/availability-zone" 2>/dev/null || echo "unknown")
+    REGION="${AZ%?}"
+    CURRENT_AMI=$(curl -sS -m 1 -H "X-aws-ec2-metadata-token: $TOKEN" "http://169.254.169.254/latest/meta-data/ami-id" 2>/dev/null || echo "unknown")
+fi
+
+echo "  Instance ID:  ${INSTANCE_ID:-unknown}"
+echo "  Region:       ${REGION:-unknown}"
+echo "  Current AMI:  ${CURRENT_AMI:-unknown}"
+
+# Step 3: Generate checklist
+echo ""
+echo "[3/3] Generating upgrade checklist..."
+echo ""
+
+CHECKLIST="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+BLUE/GREEN AMI UPGRADE CHECKLIST
+Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+Instance:  ${INSTANCE_ID:-unknown}
+Region:    ${REGION:-unknown}
+Backup:    ${LATEST_BACKUP} (${BACKUP_SIZE})
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+STEP 1: Transfer backup to the new instance (or use S3)
+
+  Option A - Direct SCP:
+    scp -i /path/to/key.pem ${LATEST_BACKUP} ubuntu@<NEW-INSTANCE-IP>:/tmp/
+
+  Option B - Via S3 (if S3 backups are configured):
+    # Backup is already uploaded to s3://${S3_BUCKET:-<your-bucket>}/
+    # On the new instance:
+    aws s3 cp s3://${S3_BUCKET:-<your-bucket>}/$(basename "$LATEST_BACKUP") /tmp/
+
+STEP 2: Launch a new instance from the latest AMI
+
+  Use the Terraform or CloudFormation templates in deploy/:
+    cd deploy/terraform
+    terraform apply -var-file=examples/secure.tfvars
+
+  Or launch manually via the AWS Console with the latest
+  npm-hardened-edition AMI.
+
+STEP 3: Wait for the new instance to complete first-boot initialization
+
+  SSH or SSM into the new instance and verify:
+    sudo npm-helper status
+
+STEP 4: Restore the backup on the new instance
+
+    sudo npm-restore /tmp/$(basename "$LATEST_BACKUP")
+
+STEP 5: Verify the new instance
+
+    sudo npm-helper health-report
+    sudo npm-helper compliance-report
+
+STEP 6: Cut over traffic
+
+  Option A - Elastic IP reassociation:
+    aws ec2 disassociate-address --association-id <old-assoc-id> --region ${REGION:-us-east-1}
+    aws ec2 associate-address --instance-id <NEW-INSTANCE-ID> --allocation-id <eip-alloc-id> --region ${REGION:-us-east-1}
+
+  Option B - DNS update:
+    Update your DNS A record to point to the new instance's IP address.
+
+STEP 7: Verify traffic on the new instance
+
+    curl -I https://your-domain.com
+    sudo npm-helper health-report
+
+STEP 8: Decommission the old instance
+
+  Once verified, terminate the old instance:
+    aws ec2 terminate-instances --instance-ids ${INSTANCE_ID:-<OLD-INSTANCE-ID>} --region ${REGION:-us-east-1}
+
+  Or stop it first for a rollback window:
+    aws ec2 stop-instances --instance-ids ${INSTANCE_ID:-<OLD-INSTANCE-ID>} --region ${REGION:-us-east-1}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+echo "$CHECKLIST"
+
+if [[ -n "$CHECKLIST_FILE" ]]; then
+    echo "$CHECKLIST" > "$CHECKLIST_FILE"
+    echo ""
+    echo "Checklist written to: $CHECKLIST_FILE"
+fi
+
+echo ""
+echo "NORTHSTAR_UPGRADE_AMI status=checklist_generated backup=${LATEST_BACKUP}"
+
+exit 0

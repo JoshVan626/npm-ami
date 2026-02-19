@@ -243,8 +243,12 @@ Additional opt-in commands:
 
 - `sudo npm-helper health-report` – unified pass/warn/fail health assessment across all subsystems (backup, restore, certs, disk, upgrade state); emits `NORTHSTAR_HEALTH_REPORT` structured log for CloudWatch
 - `sudo npm-helper health-report --json` – machine-readable JSON health report for fleet dashboards or monitoring
-- `sudo npm-helper reliability-report` – runtime reliability KPIs computed from instance history (backup success rate, restore verification pass rate, rollback readiness)
+- `sudo npm-helper reliability-report` – runtime reliability KPIs computed from instance history (backup success rate, restore verification pass rate, rollback readiness); persists daily snapshot to KPI history
 - `sudo npm-helper reliability-report --json` – machine-readable JSON reliability KPIs
+- `sudo npm-helper reliability-report --history` – show KPI trend summary from daily snapshots (7d/30d averages)
+- `sudo npm-helper reliability-report --history --json` – machine-readable trend output
+- `sudo npm-upgrade-ami` – guided blue/green AMI upgrade checklist (backup + launch + restore + cutover steps)
+- `sudo npm-migrate-import <path>` – import NPM data from an existing installation (DIY Docker, Bitnami, etc.)
 - `sudo npm-helper compliance-report` – runtime CIS benchmark compliance verification (checks SSH, UFW, sysctl, fail2ban against CIS Ubuntu 22.04 LTS Benchmark v1.0.0)
 - `sudo npm-helper compliance-report --json` – machine-readable JSON compliance evidence for audit packs
 - `sudo npm-helper update-os` – run a one-click `apt-get update` + `apt-get upgrade` (may require reboot)
@@ -559,6 +563,98 @@ sudo northstar compliance-report --json
 The report checks SSH configuration, UFW firewall state, sysctl kernel parameters, and fail2ban status against the CIS Ubuntu Linux 22.04 LTS Benchmark v1.0.0 mapping documented in [`docs/security.md`](./security.md).
 
 The `--json` output is designed for attachment to audit evidence packs.
+
+---
+
+## SSM Session Manager Access (No-SSH Operations)
+
+For enterprises that prohibit SSH access, the AMI supports AWS Systems Manager Session Manager as an alternative management path. When the instance has an IAM role with the `AmazonSSMManagedInstanceCore` managed policy attached (included in the IaC templates), operators can connect without opening port 22:
+
+```bash
+aws ssm start-session --target <instance-id> --region <region>
+```
+
+All `npm-helper`, `northstar`, and operational commands work identically over SSM sessions. When using SSM exclusively, you can remove the SSH (port 22) ingress rule from your security group for a stricter security posture.
+
+The Terraform and CloudFormation templates in `deploy/` attach the SSM managed policy automatically when `create_instance_profile` is enabled.
+
+---
+
+## Blue/Green AMI Upgrade
+
+The recommended upgrade path for production instances is an immutable blue/green replacement: launch a new instance from the latest AMI, restore data, verify, and cut over traffic.
+
+The `npm-upgrade-ami` command automates the preparation phase:
+
+```bash
+sudo npm-upgrade-ami
+sudo npm-upgrade-ami --checklist-file /tmp/upgrade-checklist.txt
+```
+
+Or via the wrapper:
+
+```bash
+sudo northstar upgrade-ami
+```
+
+This command:
+
+1. Ensures a fresh backup exists (creates one if the latest is older than 1 hour)
+2. Collects instance metadata (instance ID, region, current AMI)
+3. Generates a step-by-step checklist with copy-paste commands for:
+   - Transferring the backup to the new instance
+   - Launching a replacement instance via Terraform/CloudFormation
+   - Restoring the backup on the new instance
+   - Running health and compliance verification
+   - Cutting over traffic (EIP reassociation or DNS update)
+   - Decommissioning the old instance
+
+The command does not launch new instances automatically -- it provides a guided, auditable checklist.
+
+---
+
+## Migration from Existing NPM
+
+The `npm-migrate-import` command imports data from an existing NPM installation (DIY Docker, Bitnami, or another vendor's AMI) into the Northstar AMI:
+
+```bash
+sudo npm-migrate-import /tmp/npm-data/
+sudo npm-migrate-import /tmp/npm-export.tar.gz
+```
+
+Or via the wrapper:
+
+```bash
+sudo northstar migrate-import /tmp/npm-data/
+```
+
+**Prerequisites:** Transfer your existing NPM data directory to the instance first (via SCP, S3, or other method). The source must contain at minimum a `database.sqlite` file.
+
+The script:
+
+1. Validates the source data structure and runs database integrity pre-checks
+2. Stops the NPM stack and creates a safety backup of current data
+3. Imports data into `/opt/npm/data` and `/opt/npm/letsencrypt`
+4. Fixes ownership and permissions
+5. Starts NPM and runs health and application-level validation
+6. Emits `NORTHSTAR_MIGRATE_IMPORT` structured log for CloudWatch
+
+If anything goes wrong, pre-migration data is preserved in timestamped `.pre-migrate-*` directories for rollback.
+
+---
+
+## Reliability KPI Trend History
+
+The `reliability-report` command now persists a KPI snapshot to `/var/lib/northstar/npm/reports/kpi-history.jsonl` each time it runs. The daily health-report timer chains a reliability-report run, building a rolling 90-day history.
+
+View trend summaries:
+
+```bash
+sudo npm-helper reliability-report --history
+sudo npm-helper reliability-report --history --json
+```
+
+The trend output shows 7-day and 30-day averages for backup success rate, restore verification pass rate, and rollback readiness -- designed for pasting into incident reviews or compliance evidence.
 
 ---
 
