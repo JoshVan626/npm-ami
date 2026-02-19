@@ -1,0 +1,29 @@
+# Example override for using an external MySQL or PostgreSQL database with NPM.
+# Use only one of the two blocks below; do not set both MySQL and Postgres vars.
+#
+# Apply with:
+#   docker compose -f docker-compose.yml -f docker-compose.external-db.example.yml up -d
+#
+# Backup/restore: Database content is not included in npm-backup/npm-restore.
+# Use RDS snapshots, mysqldump, or pg_dump for the database; our tools still
+# back up /data (config) and /etc/letsencrypt (certs) on the host.
+
+version: '3.8'
+
+services:
+  app:
+    environment:
+      - DISABLE_IPV6=true
+      # --- Use ONE of the following (MySQL/MariaDB OR PostgreSQL). Uncomment and set values. ---
+      # MySQL/MariaDB:
+      # - DB_MYSQL_HOST=your-rds-endpoint.region.rds.amazonaws.com
+      # - DB_MYSQL_PORT=3306
+      # - DB_MYSQL_USER=npm
+      # - DB_MYSQL_PASSWORD=your-secure-password
+      # - DB_MYSQL_NAME=nginx_proxy_manager
+      # PostgreSQL:
+      # - DB_POSTGRES_HOST=your-rds-endpoint.region.rds.amazonaws.com
+      # - DB_POSTGRES_PORT=5432
+      # - DB_POSTGRES_USER=npm
+      # - DB_POSTGRES_PASSWORD=your-secure-password
+      # - DB_POSTGRES_NAME=nginx_proxy_manager

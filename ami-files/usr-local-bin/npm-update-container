@@ -21,10 +21,13 @@ BACKUP_PATH_CAPTURED="unknown"
 
 usage() {
   echo "Usage:"
-  echo "  $0 <new_tag>"
+  echo "  $0 [--force] <new_tag>"
   echo "  $0 --rollback [--metadata-file <path>] [--dry-run]"
+  echo "Options:"
+  echo "  --force  Proceed despite pre-upgrade warn (e.g. cert expiring soon)"
   echo "Examples:"
   echo "  $0 2.14.0"
+  echo "  $0 --force 2.14.0"
   echo "  $0 --rollback"
 }
 
@@ -316,10 +319,37 @@ health_check() {
   return 1
 }
 
+run_pre_upgrade_check() {
+  local force="$1"
+  if ! [[ -x "/usr/local/bin/npm-pre-upgrade-check" ]]; then
+    echo "Pre-upgrade check skipped (npm-pre-upgrade-check not found)."
+    return 0
+  fi
+  local tmpout
+  tmpout="$(mktemp)"
+  /usr/local/bin/npm-pre-upgrade-check > "$tmpout" 2>&1
+  local ec=$?
+  cat "$tmpout"
+  rm -f "$tmpout"
+  if [[ $ec -eq 0 ]]; then
+    return 0
+  fi
+  if [[ $ec -eq 2 ]] && [[ "$force" -eq 1 ]]; then
+    echo "Proceeding despite pre-upgrade warn (--force)."
+    return 0
+  fi
+  if [[ $ec -eq 2 ]]; then
+    echo "Pre-upgrade check reported warnings (e.g. cert expiring soon). Use --force to proceed anyway." >&2
+    exit 2
+  fi
+  echo "Pre-upgrade check failed. Resolve issues before upgrading." >&2
+  exit 1
+}
+
 main() {
   require_root
 
-  local rollback_mode=0 metadata_file="$LAST_ATTEMPT_PATH" dry_run=0
+  local rollback_mode=0 metadata_file="$LAST_ATTEMPT_PATH" dry_run=0 force=0
   local arg
   while [[ $# -gt 0 ]]; do
     arg="$1"
@@ -334,6 +364,10 @@ main() {
         ;;
       --dry-run)
         dry_run=1
+        shift
+        ;;
+      --force)
+        force=1
         shift
         ;;
       -h|--help|help)
@@ -378,6 +412,11 @@ main() {
   echo "  Current image: $current_image"
   echo "  Target image:  $new_image"
   echo "  Backup-first policy is enforced before any compose change."
+  echo ""
+
+  echo "Running pre-upgrade compatibility check..."
+  run_pre_upgrade_check "$force"
+  echo ""
 
   run_backup
 

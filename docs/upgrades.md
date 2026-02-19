@@ -88,7 +88,12 @@ sudo npm-helper compliance-report
 Also log into the NPM admin UI and check that all proxy hosts and certificates are present.
 
 6. **Switch traffic:**
-   - Reassociate an Elastic IP, or update DNS records to point to the new instance
+   - **Elastic IP:** Use the scripted cutover helper (from any host with AWS CLI):
+     ```bash
+     northstar cutover-eip <eip-allocation-id> <new-instance-id> --region <region> [--yes]
+     ```
+     Or: `npm-cutover-eip <eip-allocation-id> <new-instance-id> --region <region> [--yes]`
+   - **DNS:** Update your DNS A record to point to the new instance's IP address
 
 7. **Keep old instance running temporarily:**
    - Don't terminate the old instance immediately
@@ -146,9 +151,7 @@ The AMI pins NPM to a specific, tested Docker image tag for stability. The recom
    sudo npm-update-container <new_tag>
    ```
 
-`npm-update-container` enforces a safety backup, updates the compose image tag,
-recreates containers, performs a local health check, and attempts rollback if
-the new stack is unhealthy.
+`npm-update-container` runs a **pre-upgrade compatibility check** (current image, DB integrity, proxy/cert counts, cert expiry) before proceeding. If the check reports warnings (e.g. cert expiring in under 7 days), the command exits unless you pass `--force`. It then enforces a safety backup, updates the compose image tag, recreates containers, performs a local health check, and attempts rollback if the new stack is unhealthy.
 
 5. **Verify everything works:**
    - Check NPM admin UI is accessible

@@ -9,9 +9,11 @@ DATA_DIR="/opt/npm/data"
 LETSENCRYPT_DIR="/opt/npm/letsencrypt"
 DB_FILE="$DATA_DIR/database.sqlite"
 
+DETECT_ONLY=0
+
 usage() {
     cat <<'EOF'
-Usage: npm-migrate-import <source>
+Usage: npm-migrate-import [OPTIONS] <source>
 
 Import NPM data from an existing installation into this AMI.
 
@@ -19,8 +21,12 @@ Import NPM data from an existing installation into this AMI.
   - A directory containing database.sqlite (e.g., /tmp/npm-data/)
   - A .tar.gz archive containing opt/npm/data/ structure
 
+Options:
+  --detect-only   Only validate and report detected source type; do not import.
+  -h, --help      Show this help.
+
 The script will:
-  1. Validate the source data structure
+  1. Validate the source data structure and detect source type (Bitnami, Docker, Northstar backup)
   2. Stop the NPM stack and create a safety backup
   3. Import data into /opt/npm/data and /opt/npm/letsencrypt
   4. Fix ownership and permissions
@@ -34,11 +40,27 @@ Prerequisites:
 Examples:
   sudo npm-migrate-import /tmp/npm-data/
   sudo npm-migrate-import /tmp/npm-export.tar.gz
+  sudo npm-migrate-import --detect-only /tmp/npm-data/
 EOF
     exit 0
 }
 
-if [[ $# -lt 1 ]] || [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]]; then
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --detect-only) DETECT_ONLY=1; shift ;;
+        -h|--help) usage ;;
+        -*)
+            echo "Error: Unknown option '$1'" >&2
+            usage
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+if [[ $# -lt 1 ]]; then
+    echo "Error: <source> required." >&2
     usage
 fi
 
@@ -113,6 +135,39 @@ elif [[ -d "$SOURCE" ]]; then
 else
     echo "  ✗ Source must be a directory or a .tar.gz archive"
     exit 1
+fi
+
+# Detect source type for concierge reporting
+SOURCE_TYPE="generic"
+if [[ "$IS_ARCHIVE" == true ]]; then
+    if echo "$SOURCE_DATA_DIR" | grep -q "opt/npm/data"; then
+        SOURCE_TYPE="Northstar/AMI backup"
+    elif echo "$SOURCE" | grep -qi "bitnami"; then
+        SOURCE_TYPE="Bitnami"
+    else
+        SOURCE_TYPE="Docker default (archive)"
+    fi
+else
+    if echo "$SOURCE" | grep -qi "bitnami"; then
+        SOURCE_TYPE="Bitnami"
+    elif echo "$SOURCE_DATA_DIR" | grep -qi "bitnami"; then
+        SOURCE_TYPE="Bitnami"
+    else
+        SOURCE_TYPE="Docker default"
+    fi
+fi
+echo "  Detected source: $SOURCE_TYPE"
+
+if [[ "$DETECT_ONLY" -eq 1 ]]; then
+    echo ""
+    echo "Detect-only mode: no import performed."
+    echo "  Data directory: $SOURCE_DATA_DIR"
+    echo "  LetsEncrypt:    ${SOURCE_LE_DIR:-none found}"
+    echo "  Run without --detect-only to perform import."
+    if [[ -n "$TEMP_EXTRACT" ]] && [[ -d "$TEMP_EXTRACT" ]]; then
+        rm -rf "$TEMP_EXTRACT"
+    fi
+    exit 0
 fi
 
 # Step 2: Database integrity pre-check

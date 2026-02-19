@@ -92,6 +92,7 @@ Diagram source: [`docs/assets/architecture.mmd`](./assets/architecture.mmd).
 - See **Troubleshooting** for first-boot recovery commands (preflight/init/post-init) and CloudWatch IAM-optional expectations.
 - See **[Monitoring & Metrics](./monitoring-and-metrics.md)** for CloudWatch logs and metrics.
 - See **[Upgrades](./upgrades.md)** for upgrading the AMI and NPM versions.
+- See **[DNS and certificate patterns](./dns-cert-patterns.md)** for turnkey DNS (Route53, CloudFlare) and cert management.
 - See **[Reliability Scorecard](./reliability-scorecard.md)** for local-only reliability artifact format and generation.
 - See **[Releases](../RELEASES.md)** for AMI/NPM compatibility matrix and release-specific upgrade guidance.
 - See **[Examples: Multi-App Setup](./examples-multi-app.md)** for a common use case.

@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# Blue/green cutover primitive: reassociate an Elastic IP to a new instance.
+# Use after launching the new instance, restoring, and verifying health.
+# Requires AWS CLI and IAM permissions: ec2:DescribeAddresses, ec2:DisassociateAddress, ec2:AssociateAddress.
+
+set -euo pipefail
+
+REGION=""
+CONFIRM_YES=0
+
+usage() {
+    cat <<'EOF'
+Usage: npm-cutover-eip <allocation-id> <new-instance-id> [OPTIONS]
+
+Reassociate an Elastic IP from its current instance (if any) to the new instance.
+Run this from any host with AWS CLI and sufficient IAM permissions (e.g. your laptop or a CI runner).
+Does not require running on the NPM instance.
+
+Arguments:
+  allocation-id    EIP allocation ID (e.g. eipalloc-0123456789abcdef0)
+  new-instance-id  Target EC2 instance ID (the new NPM instance)
+
+Options:
+  --region REGION  AWS region (default: from AWS_REGION or AWS_DEFAULT_REGION)
+  --yes            Skip confirmation prompt
+  -h, --help       Show this help
+
+Example (after upgrade-ami and restore on new instance):
+  npm-cutover-eip eipalloc-0abc123 def456 --region us-east-1 --yes
+EOF
+    exit 0
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --region) REGION="$2"; shift 2 ;;
+        --yes)    CONFIRM_YES=1; shift ;;
+        -h|--help) usage ;;
+        -*)
+            echo "Error: Unknown option '$1'" >&2
+            usage
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+if [[ $# -lt 2 ]]; then
+    echo "Error: allocation-id and new-instance-id required." >&2
+    usage
+fi
+
+ALLOC_ID="$1"
+NEW_INSTANCE_ID="$2"
+
+if [[ -z "$REGION" ]]; then
+    REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
+fi
+if [[ -z "$REGION" ]]; then
+    echo "Error: --region required or set AWS_REGION / AWS_DEFAULT_REGION." >&2
+    exit 1
+fi
+
+if ! command -v aws &>/dev/null; then
+    echo "Error: AWS CLI is required." >&2
+    exit 1
+fi
+
+# Verify allocation exists
+if ! aws ec2 describe-addresses --allocation-ids "$ALLOC_ID" --region "$REGION" --query 'Addresses[0].AllocationId' --output text 2>/dev/null | grep -q .; then
+    echo "Error: Allocation ID not found or no permission: $ALLOC_ID" >&2
+    exit 1
+fi
+
+# Verify new instance exists and is running
+STATE="$(aws ec2 describe-instances --instance-ids "$NEW_INSTANCE_ID" --region "$REGION" --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null)" || true
+if [[ "$STATE" != "running" ]]; then
+    echo "Error: New instance $NEW_INSTANCE_ID not found or not running (state: ${STATE:-unknown})." >&2
+    exit 1
+fi
+
+CURRENT_ASSOC="$(aws ec2 describe-addresses --allocation-ids "$ALLOC_ID" --region "$REGION" --query 'Addresses[0].AssociationId' --output text 2>/dev/null)" || true
+
+if [[ "$CONFIRM_YES" -ne 1 ]]; then
+    echo "This will:"
+    if [[ -n "$CURRENT_ASSOC" ]] && [[ "$CURRENT_ASSOC" != "None" ]]; then
+        echo "  1. Disassociate EIP $ALLOC_ID from its current instance"
+    fi
+    echo "  2. Associate EIP $ALLOC_ID with instance $NEW_INSTANCE_ID"
+    echo ""
+    read -r -p "Proceed? [y/N] " resp
+    if [[ "${resp,,}" != "y" ]] && [[ "${resp,,}" != "yes" ]]; then
+        echo "Aborted."
+        exit 0
+    fi
+fi
+
+if [[ -n "$CURRENT_ASSOC" ]] && [[ "$CURRENT_ASSOC" != "None" ]]; then
+    echo "Disassociating EIP from current instance..."
+    aws ec2 disassociate-address --association-id "$CURRENT_ASSOC" --region "$REGION"
+    echo "Disassociated."
+    sleep 2
+fi
+
+echo "Associating EIP with $NEW_INSTANCE_ID..."
+aws ec2 associate-address --allocation-id "$ALLOC_ID" --instance-id "$NEW_INSTANCE_ID" --region "$REGION"
+echo "Done. EIP is now associated with $NEW_INSTANCE_ID."

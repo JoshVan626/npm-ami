@@ -1,0 +1,178 @@
+#!/usr/bin/env bash
+# Pre-upgrade compatibility check: config, DB, cert state before container or AMI upgrade.
+# Exits: 0 = pass, 1 = fail (block upgrade), 2 = warn (block unless --force).
+
+set -euo pipefail
+
+COMPOSE_FILE="${COMPOSE_FILE:-/opt/npm/docker-compose.yml}"
+DATA_DIR="${DATA_DIR:-/opt/npm/data}"
+DB_PATH="$DATA_DIR/database.sqlite"
+LE_DIR="${LE_DIR:-/opt/npm/letsencrypt}"
+CERT_WARN_DAYS="${CERT_WARN_DAYS:-7}"
+FORCE=0
+JSON_MODE=0
+
+usage() {
+    cat <<'EOF'
+Usage: npm-pre-upgrade-check [OPTIONS]
+
+Run compatibility checks before a container image upgrade or blue/green AMI upgrade.
+Reports: current NPM image tag, DB integrity, proxy host count, cert count, soonest cert expiry.
+
+Options:
+  --force    In npm-update-container: proceed despite warn (not used when run standalone)
+  --json     Output machine-readable summary line only (for embedding)
+  -h, --help Show this help
+
+Exit codes: 0 = pass, 1 = fail, 2 = warn (cert expiring soon or minor issue)
+EOF
+    exit 0
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --force) FORCE=1; shift ;;
+        --json)  JSON_MODE=1; shift ;;
+        -h|--help) usage ;;
+        *) echo "Error: Unknown option '$1'" >&2; usage ;;
+    esac
+done
+
+if [[ "$(id -u)" -ne 0 ]]; then
+    echo "Error: This command requires root privileges." >&2
+    exit 1
+fi
+
+# Get current image from docker-compose.yml (same logic as npm-update-container)
+get_current_image() {
+    local file="$1"
+    python3 - "$file" <<'PY'
+import re
+import sys
+path = sys.argv[1]
+def strip_comment(line): return line.split("#", 1)[0].rstrip("\n")
+def indent_len(line): return len(line) - len(line.lstrip(" "))
+def key_name(s):
+    s = s.strip()
+    return s.split(":", 1)[0].strip() if s and ":" in s else ""
+with open(path, "r", encoding="utf-8") as f:
+    lines = f.readlines()
+si = None
+sind = None
+for i, line in enumerate(lines):
+    lc = strip_comment(line).rstrip()
+    if re.match(r"^\s*services\s*:\s*$", lc):
+        si, sind = i, indent_len(line)
+        break
+if si is None:
+    sys.exit(1)
+ai = None
+aind = None
+for i in range(si + 1, len(lines)):
+    line = lines[i]
+    lc = strip_comment(line).rstrip()
+    if not lc.strip(): continue
+    if indent_len(line) <= sind: break
+    if re.match(r"^\s*app\s*:\s*$", lc):
+        ai, aind = i, indent_len(line)
+        break
+if ai is None:
+    sys.exit(1)
+img = None
+for i in range(ai + 1, len(lines)):
+    line = lines[i]
+    lc = strip_comment(line).rstrip()
+    if not lc.strip(): continue
+    if indent_len(line) <= aind: break
+    if key_name(lc) == "image":
+        _, rest = lc.split(":", 1)
+        v = rest.strip()
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
+            v = v[1:-1]
+        img = v
+        break
+if img:
+    print(img, end="")
+PY
+}
+
+CURRENT_IMAGE=""
+if [[ -f "$COMPOSE_FILE" ]]; then
+    CURRENT_IMAGE="$(get_current_image "$COMPOSE_FILE" 2>/dev/null)" || true
+fi
+
+DB_OK=0
+PROXY_COUNT=0
+if [[ -f "$DB_PATH" ]] && command -v sqlite3 &>/dev/null; then
+    INTEGRITY="$(sqlite3 "$DB_PATH" "PRAGMA integrity_check;" 2>/dev/null || echo "error")"
+    if [[ "$INTEGRITY" == "ok" ]]; then
+        DB_OK=1
+    fi
+    PROXY_COUNT="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM proxy_host;" 2>/dev/null || echo "0")"
+fi
+
+CERT_COUNT=0
+SOONEST_DAYS=""
+if [[ -d "$LE_DIR" ]]; then
+    CERT_COUNT=$(find "$LE_DIR" -type f \( -name 'fullchain.pem' -o -name 'cert.pem' \) 2>/dev/null | wc -l)
+fi
+if [[ "$CERT_COUNT" -gt 0 ]] && command -v openssl &>/dev/null; then
+    SOONEST_TS=""
+    while IFS= read -r -d '' cert; do
+        ENDDATE=$(openssl x509 -enddate -noout -in "$cert" 2>/dev/null | sed -n 's/notAfter=//p')
+        [[ -z "$ENDDATE" ]] && continue
+        # Parse "Dec 31 23:59:59 2025 GMT" or similar
+        T=$(date -d "$ENDDATE" +%s 2>/dev/null || echo "")
+        [[ -z "$T" ]] && continue
+        if [[ -z "$SOONEST_TS" ]] || [[ "$T" -lt "$SOONEST_TS" ]]; then
+            SOONEST_TS="$T"
+        fi
+    done < <(find "$LE_DIR" -type f \( -name 'fullchain.pem' -o -name 'cert.pem' \) -print0 2>/dev/null)
+    if [[ -n "$SOONEST_TS" ]]; then
+        NOW=$(date +%s)
+        SOONEST_DAYS=$(( (SOONEST_TS - NOW) / 86400 ))
+    fi
+fi
+
+# Determine overall status
+OVERALL="pass"
+EXIT_CODE=0
+if [[ "$DB_OK" -eq 0 ]] && [[ -f "$DB_PATH" ]]; then
+    OVERALL="fail"
+    EXIT_CODE=1
+fi
+if [[ -n "$SOONEST_DAYS" ]] && [[ "$SOONEST_DAYS" -le "$CERT_WARN_DAYS" ]] && [[ "$SOONEST_DAYS" -ge 0 ]]; then
+    if [[ "$OVERALL" == "pass" ]]; then
+        OVERALL="warn"
+        EXIT_CODE=2
+    fi
+fi
+if [[ -n "$SOONEST_DAYS" ]] && [[ "$SOONEST_DAYS" -lt 0 ]]; then
+    OVERALL="warn"
+    EXIT_CODE=2
+fi
+
+if [[ "$JSON_MODE" -eq 1 ]]; then
+    echo "current_image=${CURRENT_IMAGE:-unknown} db_ok=${DB_OK} proxy_hosts=${PROXY_COUNT} cert_count=${CERT_COUNT} cert_days_remaining=${SOONEST_DAYS:-} overall=${OVERALL}"
+    exit "$EXIT_CODE"
+fi
+
+# Human-readable output
+echo "Pre-upgrade compatibility check"
+echo "  Current NPM image: ${CURRENT_IMAGE:-unknown}"
+echo "  Database integrity: $([ "$DB_OK" -eq 1 ] && echo "ok" || echo "fail or missing")"
+echo "  Proxy hosts: $PROXY_COUNT"
+echo "  Certificates: $CERT_COUNT"
+if [[ -n "$SOONEST_DAYS" ]]; then
+    if [[ "$SOONEST_DAYS" -lt 0 ]]; then
+        echo "  Soonest cert expiry: EXPIRED"
+    else
+        echo "  Soonest cert expiry: ${SOONEST_DAYS} days remaining"
+    fi
+else
+    echo "  Soonest cert expiry: (none or N/A)"
+fi
+echo ""
+
+echo "NORTHSTAR_PRE_UPGRADE_CHECK status=${OVERALL} current_image=${CURRENT_IMAGE:-unknown} db_ok=${DB_OK} proxy_hosts=${PROXY_COUNT} cert_count=${CERT_COUNT} cert_days_remaining=${SOONEST_DAYS:-}"
+exit "$EXIT_CODE"

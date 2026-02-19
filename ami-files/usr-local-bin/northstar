@@ -21,6 +21,8 @@ Commands:
   reliability-report [--json] Runtime reliability KPIs
   compliance-report [--json]  Runtime CIS benchmark verification
   upgrade-ami                Blue/green AMI upgrade checklist
+  cutover-eip <alloc> <id>   Reassociate EIP to new instance (scripted cutover)
+  pre-upgrade-check          Pre-upgrade compatibility (config, DB, certs)
   migrate-import <path>      Import data from existing NPM installation
 
 Examples:
@@ -76,6 +78,12 @@ case "$cmd" in
     ;;
   upgrade-ami)
     exec npm-upgrade-ami "$@"
+    ;;
+  cutover-eip)
+    exec npm-cutover-eip "$@"
+    ;;
+  pre-upgrade-check)
+    exec npm-pre-upgrade-check "$@"
     ;;
   migrate-import)
     exec npm-migrate-import "$@"

@@ -86,10 +86,19 @@ Diagram source: [`docs/assets/architecture.mmd`](docs/assets/architecture.mmd).
 
 Production deployments deserve repeatable, auditable infrastructure. This AMI ships with **ready-to-use Terraform and CloudFormation templates** in the [`deploy/`](deploy/) directory so you can launch hardened NPM instances through your existing IaC pipelines.
 
+### Recommended deployment (hardened default)
+
+For the **opinionated hardened default** with minimal choices: use **one template and one vars file**.
+
+- **Terraform:** `deploy/terraform/` with **`examples/secure.tfvars`** — enables instance profile (CloudWatch, S3, Secrets Manager, EC2 tagging, SSM), restricted admin ports, and optional EIP.
+- **CloudFormation:** `deploy/cloudformation/template.yaml` with **`examples/secure-params.json`** — same hardened profile.
+
+This gives you a single, supportable path: SSM support, backup/restore permissions, credential storage in Secrets Manager, and fleet tagging without configuring each option by hand.
+
 | Template | Path | Quick Start |
 |---|---|---|
-| **Terraform** | [`deploy/terraform/main.tf`](deploy/terraform/main.tf) | `terraform apply -var-file=examples/minimal.tfvars` |
-| **CloudFormation** | [`deploy/cloudformation/template.yaml`](deploy/cloudformation/template.yaml) | `aws cloudformation create-stack --template-body file://deploy/cloudformation/template.yaml` |
+| **Terraform** | [`deploy/terraform/main.tf`](deploy/terraform/main.tf) | `terraform apply -var-file=examples/secure.tfvars` (recommended) or `examples/minimal.tfvars` |
+| **CloudFormation** | [`deploy/cloudformation/template.yaml`](deploy/cloudformation/template.yaml) | Use `examples/secure-params.json` (recommended) or `examples/minimal-params.json` |
 
 Both templates create:
 
@@ -113,6 +122,7 @@ After launching the AMI from AWS Marketplace:
 
 - **Quickstart Guide:** [`docs/quickstart.md`](docs/quickstart.md)
 - **Documentation Index:** [`docs/index.md`](docs/index.md)
+- **DNS and certificates:** [`docs/dns-cert-patterns.md`](docs/dns-cert-patterns.md) (Route53, CloudFlare, Let's Encrypt)
 
 The Quickstart covers:
 - First login and credential retrieval

@@ -47,6 +47,22 @@ echo "NPM Blue/Green AMI Upgrade Assistant"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
+# Step 0: Pre-upgrade readiness (compatibility check)
+PRE_UPGRADE_SUMMARY=""
+if [[ -x "/usr/local/bin/npm-pre-upgrade-check" ]]; then
+    echo "[0/4] Pre-upgrade readiness..."
+    PRE_UPGRADE_SUMMARY="$(/usr/local/bin/npm-pre-upgrade-check --json 2>/dev/null)" || true
+    if [[ -n "$PRE_UPGRADE_SUMMARY" ]]; then
+        echo "  $PRE_UPGRADE_SUMMARY"
+    else
+        /usr/local/bin/npm-pre-upgrade-check 2>/dev/null || true
+    fi
+    echo ""
+else
+    echo "[0/4] Pre-upgrade check skipped (npm-pre-upgrade-check not found)"
+    echo ""
+fi
+
 # Read backup config
 if [[ -f "$BACKUP_CONFIG" ]]; then
     eval "$(grep -E '^\s*(local_backup_dir|s3_bucket)\s*=' "$BACKUP_CONFIG" | sed 's/\s*=\s*/=/' | sed 's/^/CONF_/')" 2>/dev/null || true
@@ -55,7 +71,7 @@ if [[ -f "$BACKUP_CONFIG" ]]; then
 fi
 
 # Step 1: Ensure a fresh backup exists
-echo "[1/3] Checking for a recent backup..."
+echo "[1/4] Checking for a recent backup..."
 
 LATEST_BACKUP=""
 NEED_BACKUP=true
@@ -93,7 +109,7 @@ BACKUP_SIZE=$(du -h "$LATEST_BACKUP" 2>/dev/null | cut -f1)
 
 # Step 2: Collect instance metadata
 echo ""
-echo "[2/3] Collecting instance metadata..."
+echo "[2/4] Collecting instance metadata..."
 
 INSTANCE_ID=""
 REGION=""
@@ -114,7 +130,7 @@ echo "  Current AMI:  ${CURRENT_AMI:-unknown}"
 
 # Step 3: Generate checklist
 echo ""
-echo "[3/3] Generating upgrade checklist..."
+echo "[3/4] Generating upgrade checklist..."
 echo ""
 
 CHECKLIST="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -123,6 +139,7 @@ Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 Instance:  ${INSTANCE_ID:-unknown}
 Region:    ${REGION:-unknown}
 Backup:    ${LATEST_BACKUP} (${BACKUP_SIZE})
+Pre-upgrade: ${PRE_UPGRADE_SUMMARY:-N/A}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 STEP 1: Transfer backup to the new instance (or use S3)

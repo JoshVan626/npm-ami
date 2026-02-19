@@ -7,6 +7,12 @@ run in production.
 
 ---
 
+## Recommended deployment (hardened default)
+
+To reduce choice overload and get a single, supportable path: use the **Terraform** template with **`deploy/terraform/examples/secure.tfvars`** (or the **CloudFormation** template with **`deploy/cloudformation/examples/secure-params.json`**). This enables the instance profile (CloudWatch, S3, Secrets Manager, EC2 tagging, SSM), restricted admin ports, and optional EIP in one step. See [`deploy/README.md`](../deploy/README.md) for the secure default labels and full options.
+
+---
+
 ## NPM Initialization (First Boot)
 
 On first boot, the boot flow is:
@@ -248,7 +254,9 @@ Additional opt-in commands:
 - `sudo npm-helper reliability-report --history` – show KPI trend summary from daily snapshots (7d/30d averages)
 - `sudo npm-helper reliability-report --history --json` – machine-readable trend output
 - `sudo npm-upgrade-ami` – guided blue/green AMI upgrade checklist (backup + launch + restore + cutover steps)
-- `sudo npm-migrate-import <path>` – import NPM data from an existing installation (DIY Docker, Bitnami, etc.)
+- `sudo npm-pre-upgrade-check` – pre-upgrade compatibility (current image, DB integrity, proxy/cert counts, cert expiry); used automatically by `npm-update-container` and `npm-upgrade-ami`
+- `sudo npm-cutover-eip <allocation-id> <new-instance-id> [--region REGION] [--yes]` – scripted EIP reassociation for blue/green cutover (run from any host with AWS CLI)
+- `sudo npm-migrate-import [--detect-only] <path>` – import NPM data from an existing installation (DIY Docker, Bitnami, etc.); `--detect-only` validates and reports source type without importing
 - `sudo npm-helper compliance-report` – runtime CIS benchmark compliance verification (checks SSH, UFW, sysctl, fail2ban against CIS Ubuntu 22.04 LTS Benchmark v1.0.0)
 - `sudo npm-helper compliance-report --json` – machine-readable JSON compliance evidence for audit packs
 - `sudo npm-helper update-os` – run a one-click `apt-get update` + `apt-get upgrade` (may require reboot)
@@ -497,6 +505,41 @@ This ensures backups contain a structurally sound, non-corrupt database.
 
 ---
 
+## Advanced: External database (MySQL / PostgreSQL)
+
+By default, NPM uses SQLite stored under `/opt/npm/data`. The AMI's backup and restore tools, as well as first-boot init, are designed for this default. For operators who outgrow SQLite (e.g. higher write load or multi-instance sharing), Nginx Proxy Manager upstream supports **MySQL/MariaDB** and **PostgreSQL** via environment variables.
+
+- **SQLite (default):** Fully supported. `npm-backup` and `npm-restore` include the database; `npm-init` seeds the admin user into the local DB.
+- **External DB (advanced):** You configure the NPM container to use an external database. Init will still seed the DB if it is empty. **Backup and restore** for database content are **customer-managed** (e.g. RDS snapshots, `mysqldump`/`pg_dump`). The AMI's `npm-backup`/`npm-restore` remain file-based for config and certificates (`/data` and `/etc/letsencrypt`); when using an external DB, the SQLite file under `/opt/npm/data` is not used for NPM's main data, so you can exclude it from backup or use it only for local cache if applicable.
+
+### MySQL/MariaDB environment variables
+
+Set these in your compose override or environment (see example below):
+
+| Variable | Description |
+|----------|-------------|
+| `DB_MYSQL_HOST` | Database host (e.g. RDS endpoint) |
+| `DB_MYSQL_PORT` | Port (default: 3306) |
+| `DB_MYSQL_USER` | Database user |
+| `DB_MYSQL_PASSWORD` | Database password |
+| `DB_MYSQL_NAME` | Database name |
+
+Optional SSL: `DB_MYSQL_SSL`, `DB_MYSQL_SSL_REJECT_UNAUTHORIZED`, `DB_MYSQL_SSL_VERIFY_IDENTITY`.
+
+### PostgreSQL environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `DB_POSTGRES_HOST` | Database host |
+| `DB_POSTGRES_PORT` | Port (default: 5432) |
+| `DB_POSTGRES_USER` | Database user |
+| `DB_POSTGRES_PASSWORD` | Database password |
+| `DB_POSTGRES_NAME` | Database name |
+
+See [Nginx Proxy Manager upstream documentation](https://github.com/NginxProxyManager/nginx-proxy-manager) for the latest variables and behavior. An example override file is provided as `docker-compose.external-db.example.yml` in `/opt/npm/` (if installed from the AMI); use it as a reference and merge the `environment` section into your running compose setup.
+
+---
+
 ## Support Bundles
 
 The `npm-support-bundle` command collects diagnostic information for
@@ -611,6 +654,15 @@ This command:
 
 The command does not launch new instances automatically -- it provides a guided, auditable checklist.
 
+### Scripted cutover primitives
+
+For automation or CI, you can run individual cutover steps instead of following the checklist by hand:
+
+- **`npm-upgrade-ami`** (or **`northstar upgrade-ami`**): Use when you want the full checklist (backup, metadata, and copy-paste steps). Run on the **old** instance before launching the new one.
+- **`npm-cutover-eip <allocation-id> <new-instance-id> [--region REGION] [--yes]`** (or **`northstar cutover-eip ...`**): Reassociates an Elastic IP to the new instance. Run from any host with AWS CLI and IAM permissions (`ec2:DescribeAddresses`, `ec2:DisassociateAddress`, `ec2:AssociateAddress`). Use after you have launched the new instance, restored the backup, and verified health (e.g. `npm-helper health-report` on the new instance). The `--yes` flag skips the confirmation prompt.
+
+Example flow: run `npm-upgrade-ami` on the old instance → launch new instance (Terraform/Console) → restore on new instance → verify with `npm-helper health-report` → run `npm-cutover-eip eipalloc-xxx i-newinstanceid --region us-east-1 --yes` → decommission old instance when ready.
+
 ---
 
 ## Migration from Existing NPM
@@ -641,6 +693,21 @@ The script:
 
 If anything goes wrong, pre-migration data is preserved in timestamped `.pre-migrate-*` directories for rollback.
 
+### Validated import paths
+
+The script detects common source types (Bitnami, Docker default, Northstar/AMI backup) and reports **Detected source:** in the output. Use **`--detect-only`** to validate a path and see the detected type without importing:
+
+```bash
+sudo npm-migrate-import --detect-only /tmp/npm-data/
+```
+
+| Source | Where to find data | How to prepare for import |
+|--------|--------------------|----------------------------|
+| **Bitnami NPM** | On the Bitnami host: `~/stack/nginx-proxy-manager/data/` (or similar; check Bitnami docs for your install). Contains `database.sqlite`. | Copy the `data` directory (and `letsencrypt` if present) to this instance, e.g. `scp -r user@source:/path/to/data /tmp/npm-data/`. Then run `npm-migrate-import /tmp/npm-data/`. |
+| **DIY Docker** | Typical mount: `./data` and `./letsencrypt` next to your `docker-compose.yml`. The directory that contains `database.sqlite` is the data dir. | Copy that directory to this instance, or create a tarball: `tar czvf npm-export.tar.gz -C /path/to/parent data letsencrypt`. Then `npm-migrate-import /tmp/npm-export.tar.gz` or `npm-migrate-import /tmp/npm-data/`. |
+| **Northstar/AMI backup** | Archive created by `npm-backup` (contains `opt/npm/data/` and optionally `opt/npm/letsencrypt/`). | Transfer the `.tar.gz` to this instance and run `npm-migrate-import /path/to/npm-YYYYMMDDHHMMSS.tar.gz`. |
+| **Other AMIs** | Same layout as DIY Docker if they use the standard NPM data paths. | Same as DIY Docker: copy the directory that contains `database.sqlite` (and sibling `letsencrypt` if present). |
+
 ---
 
 ## Reliability KPI Trend History
@@ -664,10 +731,13 @@ This AMI is a **hardened, production-grade appliance** backed by Northstar Cloud
 
 ### Support Tiers
 
-| Tier | Scope | How to Access |
-|---|---|---|
-| **Self-Service (included)** | Documentation, troubleshooting guides, and CLI tooling (`npm-helper`, `northstar`) | [`docs/`](./index.md), [`docs/troubleshooting.md`](./troubleshooting.md) |
-| **Premium Hardened Support** | Dedicated email support for AMI initialization, credential recovery, backup/restore workflows, upgrade failures, and observability configuration | Email **support@northstarcloud.io** with a support bundle attached |
+| Tier | Scope | Response expectation | How to Access |
+|------|--------|----------------------|---------------|
+| **Self-Service / Community** | Documentation, troubleshooting guides, and CLI tooling (`npm-helper`, `northstar`) | No SLA | [`docs/`](./index.md), [`docs/troubleshooting.md`](./troubleshooting.md) |
+| **Standard** *(optional)* | Best-effort email support for AMI initialization, backup/restore, and upgrade guidance | Best-effort response within N business days *(define in your contract)* | Email **support@northstarcloud.io** with support bundle; tier subject to availability |
+| **Premium / Enterprise** *(optional)* | Dedicated support for credential recovery, upgrade failures, observability, and operational escalations | Response within M hours *(define in your contract)*; optional phone/video for critical issues | Email **support@northstarcloud.io** with support bundle; tier subject to availability |
+
+Placeholder SLA values (N business days, M hours) are filled in when you have an active support agreement. The table above defines the support plan matrix and scope boundaries.
 
 ### Standard Operating Procedure (SOP)
 

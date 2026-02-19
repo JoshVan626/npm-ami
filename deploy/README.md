@@ -2,6 +2,8 @@
 
 This folder contains copy-paste Infrastructure-as-Code templates to launch **Nginx Proxy Manager (NPM) for AWS — by Northstar Cloud Solutions**.
 
+**Secure default (recommended):** For a hardened deployment with minimal choices, use **`examples/secure.tfvars`** (Terraform) or **`examples/secure-params.json`** (CloudFormation). These enable the instance profile (CloudWatch, S3, Secrets Manager, EC2 tagging, SSM), restricted admin ports, and optional EIP. Use **`examples/minimal.tfvars`** / **`examples/minimal-params.json`** only for quick trials or when you will attach permissions separately.
+
 These templates create:
 - An EC2 instance (`t3.small` by default)
 - A security group with **public 80/443** and **restricted admin ports (22/81)**. Review and tighten for your environment; **do not expose 81 publicly**.
