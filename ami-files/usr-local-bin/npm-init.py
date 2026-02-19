@@ -221,8 +221,13 @@ def main() -> None:
     # 3) Finalize
     try:
         write_credentials_file(str(CREDENTIALS_FILE), ADMIN_EMAIL, password)
+        try:
+            store_credentials_in_secrets_manager(ADMIN_EMAIL, password)
+        except Exception as e:
+            logger.warning(
+                "Secrets Manager storage skipped or failed (non-blocking): %s", e
+            )
         migrate_legacy_credentials()
-        store_credentials_in_secrets_manager(ADMIN_EMAIL, password)
 
         ip = detect_instance_ip()
         motd_content = build_motd_script(ip, ADMIN_EMAIL)
