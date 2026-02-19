@@ -44,6 +44,7 @@ from npm_common import (
     write_credentials_file,
     detect_instance_ip,
     build_motd_script,
+    store_credentials_in_secrets_manager,
     AdminUserNotFoundError,
     AuthRecordNotFoundError,
     DatabaseTimeoutError,
@@ -1581,6 +1582,11 @@ def cmd_rotate_admin():
             conn.close()
             sys.exit(1)
         
+        try:
+            store_credentials_in_secrets_manager(ADMIN_EMAIL, new_password)
+        except Exception as e:
+            print(f"Warning: Secrets Manager update skipped (non-blocking): {e}")
+        
         # Detect IP and update MOTD
         try:
             ip = detect_instance_ip()
@@ -2100,6 +2106,13 @@ def cmd_health_report(json_mode: bool = False) -> None:
     print("=" * 60)
     print(f"  Overall: {overall.upper()}")
     print("")
+
+    fail_count = sum(1 for c in checks if c["status"] == "fail")
+    warn_count = sum(1 for c in checks if c["status"] == "warn")
+    pass_count = sum(1 for c in checks if c["status"] == "pass")
+    print(f"NORTHSTAR_HEALTH_REPORT overall={overall} failed={fail_count}"
+          f" warned={warn_count} passed={pass_count}")
+
     if overall == "fail":
         sys.exit(1)
 
@@ -2237,6 +2250,214 @@ def cmd_reliability_report(json_mode: bool = False) -> None:
     print(f"    Last upgrade status:      {kpis['last_upgrade_status'] or 'no upgrade attempted'}")
     print(f"    Rollback ready:           {'yes' if kpis['rollback_ready'] else 'no'}")
     print("=" * 60)
+
+
+CIS_CHECKS = [
+    {
+        "name": "SSH PasswordAuthentication",
+        "cis": "5.2.6",
+        "method": "sshd",
+        "key": "passwordauthentication",
+        "expected": "no",
+    },
+    {
+        "name": "SSH PermitRootLogin",
+        "cis": "5.2.10",
+        "method": "sshd",
+        "key": "permitrootlogin",
+        "expected": "no",
+    },
+    {
+        "name": "SSH PubkeyAuthentication",
+        "cis": "5.2.5",
+        "method": "sshd",
+        "key": "pubkeyauthentication",
+        "expected": "yes",
+    },
+    {
+        "name": "SSH Banner",
+        "cis": "5.2.16",
+        "method": "sshd",
+        "key": "banner",
+        "expected_not": "none",
+    },
+    {
+        "name": "SSH UsePAM",
+        "cis": "5.2.17",
+        "method": "sshd",
+        "key": "usepam",
+        "expected": "yes",
+    },
+    {
+        "name": "UFW active",
+        "cis": "3.5.1.1",
+        "method": "ufw_active",
+    },
+    {
+        "name": "UFW default deny incoming",
+        "cis": "3.5.1.7",
+        "method": "ufw_default_deny",
+    },
+    {
+        "name": "sysctl net.ipv4.conf.all.accept_redirects",
+        "cis": "3.3.2",
+        "method": "sysctl",
+        "key": "net.ipv4.conf.all.accept_redirects",
+        "expected": "0",
+    },
+    {
+        "name": "sysctl net.ipv4.conf.all.send_redirects",
+        "cis": "3.3.2",
+        "method": "sysctl",
+        "key": "net.ipv4.conf.all.send_redirects",
+        "expected": "0",
+    },
+    {
+        "name": "sysctl net.ipv4.conf.all.accept_source_route",
+        "cis": "3.3.1",
+        "method": "sysctl",
+        "key": "net.ipv4.conf.all.accept_source_route",
+        "expected": "0",
+    },
+    {
+        "name": "sysctl net.ipv4.icmp_echo_ignore_broadcasts",
+        "cis": "3.3.5",
+        "method": "sysctl",
+        "key": "net.ipv4.icmp_echo_ignore_broadcasts",
+        "expected": "1",
+    },
+    {
+        "name": "sysctl net.ipv4.conf.all.rp_filter",
+        "cis": "3.3.7",
+        "method": "sysctl",
+        "key": "net.ipv4.conf.all.rp_filter",
+        "expected": "1",
+    },
+    {
+        "name": "fail2ban service active",
+        "cis": "5.2.x (supplement)",
+        "method": "systemd_active",
+        "key": "fail2ban",
+    },
+    {
+        "name": "fail2ban sshd jail enabled",
+        "cis": "5.2.x (supplement)",
+        "method": "fail2ban_jail",
+    },
+]
+
+
+def _get_sshd_config_cache() -> dict:
+    """Parse sshd -T output into a lowercase key-value dict (cached)."""
+    if not hasattr(_get_sshd_config_cache, "_cache"):
+        cfg = {}
+        try:
+            r = run_cmd(["sshd", "-T"], timeout=5)
+            if r.returncode == 0:
+                for line in r.stdout.splitlines():
+                    parts = line.strip().split(None, 1)
+                    if len(parts) == 2:
+                        cfg[parts[0].lower()] = parts[1].lower()
+        except Exception:
+            pass
+        _get_sshd_config_cache._cache = cfg
+    return _get_sshd_config_cache._cache
+
+
+def _run_compliance_check(check: dict) -> dict:
+    """Execute a single compliance check and return result dict."""
+    result = {"name": check["name"], "cis": check["cis"], "status": "fail", "actual": "unknown"}
+    method = check["method"]
+
+    try:
+        if method == "sshd":
+            cfg = _get_sshd_config_cache()
+            actual = cfg.get(check["key"], "")
+            result["actual"] = actual or "(not set)"
+            if "expected" in check:
+                result["status"] = "pass" if actual == check["expected"] else "fail"
+            elif "expected_not" in check:
+                result["status"] = "pass" if actual and actual != check["expected_not"] else "fail"
+
+        elif method == "sysctl":
+            r = run_cmd(["sysctl", "-n", check["key"]], timeout=5)
+            actual = r.stdout.strip()
+            result["actual"] = actual
+            result["status"] = "pass" if actual == check["expected"] else "fail"
+
+        elif method == "ufw_active":
+            r = run_cmd(["ufw", "status"], timeout=5)
+            active = "Status: active" in r.stdout
+            result["actual"] = "active" if active else "inactive"
+            result["status"] = "pass" if active else "fail"
+
+        elif method == "ufw_default_deny":
+            r = run_cmd(["ufw", "status", "verbose"], timeout=5)
+            result["actual"] = "unknown"
+            for line in r.stdout.splitlines():
+                if "Default:" in line and "deny (incoming)" in line:
+                    result["actual"] = "deny (incoming)"
+                    result["status"] = "pass"
+                    break
+            if result["status"] != "pass":
+                result["actual"] = "not deny"
+
+        elif method == "systemd_active":
+            r = run_cmd(["systemctl", "is-active", check["key"]], timeout=5)
+            actual = r.stdout.strip()
+            result["actual"] = actual
+            result["status"] = "pass" if actual == "active" else "fail"
+
+        elif method == "fail2ban_jail":
+            r = run_cmd(["fail2ban-client", "status", "sshd"], timeout=5)
+            result["actual"] = "enabled" if r.returncode == 0 else "missing/disabled"
+            result["status"] = "pass" if r.returncode == 0 else "fail"
+
+    except Exception as e:
+        result["actual"] = f"error: {e}"
+        result["status"] = "fail"
+
+    return result
+
+
+def cmd_compliance_report(json_mode: bool = False) -> None:
+    """Runtime verification of CIS benchmark hardening controls."""
+    require_root("compliance-report")
+    results = [_run_compliance_check(c) for c in CIS_CHECKS]
+
+    pass_count = sum(1 for r in results if r["status"] == "pass")
+    fail_count = sum(1 for r in results if r["status"] == "fail")
+    overall = "pass" if fail_count == 0 else "fail"
+
+    report = {
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "benchmark": "CIS Ubuntu Linux 22.04 LTS Benchmark v1.0.0",
+        "overall_status": overall,
+        "passed": pass_count,
+        "failed": fail_count,
+        "total": len(results),
+        "checks": results,
+    }
+
+    if json_mode:
+        print(json.dumps(report, indent=2))
+        return
+
+    print("NPM Compliance Report")
+    print("CIS Ubuntu Linux 22.04 LTS Benchmark v1.0.0")
+    print("=" * 72)
+    for r in results:
+        tag = "PASS" if r["status"] == "pass" else "FAIL"
+        print(f"  [{tag}]  {r['name']:.<42s} CIS {r['cis']:<14s} {r['actual']}")
+    print("=" * 72)
+    print(f"  Overall: {overall.upper()}  ({pass_count} passed, {fail_count} failed)")
+    print("")
+    print("  Disclaimer: This is a guidance mapping. Run CIS-CAT or equivalent")
+    print("  auditing tools for formal compliance assessment.")
+    print("")
+
+    if overall == "fail":
+        sys.exit(1)
 
 
 def main():
@@ -2410,6 +2631,14 @@ def main():
         action="store_true",
         help="Output machine-readable JSON only"
     )
+
+    # compliance-report subcommand
+    parser_comp = subparsers.add_parser("compliance-report", help="Runtime CIS benchmark compliance verification")
+    parser_comp.add_argument(
+        "--json",
+        action="store_true",
+        help="Output machine-readable JSON only"
+    )
     
     # Parse arguments
     args = parser.parse_args()
@@ -2466,6 +2695,8 @@ def main():
         cmd_health_report(json_mode=getattr(args, "json", False))
     elif args.command == "reliability-report":
         cmd_reliability_report(json_mode=getattr(args, "json", False))
+    elif args.command == "compliance-report":
+        cmd_compliance_report(json_mode=getattr(args, "json", False))
     else:
         parser.print_help()
         sys.exit(1)

@@ -212,6 +212,17 @@ This section maps the AMI's built-in hardening controls to the **CIS Ubuntu Linu
 | Admin credentials stored root-only (`0600`) | `/root/.northstar/npm-admin-credentials` | N/A -- defense-in-depth credential protection | Enforced at first boot |
 | Optional Secrets Manager integration | `npm-init.py` + IAM role | N/A -- enterprise governance enhancement | Best-effort; requires IAM permissions |
 
+### Runtime Compliance Verification
+
+To verify that hardening controls are still applied on a running instance, use the compliance report command:
+
+```bash
+sudo npm-helper compliance-report
+sudo npm-helper compliance-report --json
+```
+
+This checks SSH configuration, UFW state, sysctl parameters, and fail2ban status against the CIS mappings above and reports pass/fail for each control. The `--json` output can be attached to audit evidence packs. See [`docs/operations.md`](./operations.md) for details.
+
 ### Customer-Owned Controls
 
 The following CIS controls depend on customer configuration and are outside the AMI baseline:

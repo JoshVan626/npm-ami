@@ -175,3 +175,33 @@ The AMI's default config collects:
 - **mem_used_percent** – overall memory usage percentage
 
 - **used_percent (for /)** – disk space used on the root filesystem
+
+### Opt-in Alarms and Metric Filters
+
+When `northstar observability enable` is run, the following alarms and metric filters are created:
+
+**Metric Filters** (namespace: `NorthstarCloudSolutions/Operational`):
+
+| Filter | Log Pattern | Metric |
+|---|---|---|
+| Backup failure | `NORTHSTAR_BACKUP status=failure` | `backup_failure_count` |
+| Restore validation warning | `NORTHSTAR_RESTORE_VALIDATE status=warn` | `restore_validate_warn_count` |
+| Certificate expiry warning | `NORTHSTAR_CERT_EXPIRY_WARN` | `cert_expiry_warn_count` |
+| Health report failure | `NORTHSTAR_HEALTH_REPORT overall=fail` | `health_report_fail_count` |
+
+**Alarms** (8 total):
+
+| Alarm | Trigger | Namespace |
+|---|---|---|
+| Disk high | Root disk >= 85% for 15 min | `NorthstarCloudSolutions/System` |
+| CPU iowait high | iowait >= 40% for 15 min | `NorthstarCloudSolutions/System` |
+| Memory high | Memory >= 90% for 15 min | `NorthstarCloudSolutions/System` |
+| Backup failure | Any backup failure event | `NorthstarCloudSolutions/Operational` |
+| Restore validation warning | Post-restore validation warning/failure | `NorthstarCloudSolutions/Operational` |
+| Certificate expiry warning | Certificate expiry warning logged | `NorthstarCloudSolutions/Operational` |
+| Health report failure | Daily health report detects failing subsystem | `NorthstarCloudSolutions/Operational` |
+| NPM unhealthy | EC2 status check failure | `AWS/EC2` |
+
+**Dashboard** includes 5 widgets: CPU iowait, memory, disk, recent system logs, and operational events (showing backup, restore, cert, and health report events).
+
+All alarms support optional SNS notification via `--alarm-action-arn` and `--ok-action-arn` flags.

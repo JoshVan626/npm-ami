@@ -1,0 +1,10 @@
+[Unit]
+Description=NPM daily health report
+After=npm.service docker.service
+Wants=npm.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/npm-helper health-report
+StandardOutput=journal
+StandardError=journal

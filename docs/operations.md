@@ -159,6 +159,7 @@ Key services:
 - `npm-backup.timer` – daily backup timer
 - `npm-restore-verify.timer` – periodic non-destructive restore verification timer
 - `npm-cert-check.timer` – daily certificate expiry check
+- `npm-health-report.timer` – daily automated health assessment (emits `NORTHSTAR_HEALTH_REPORT`)
 - `amazon-cloudwatch-agent.service` – CloudWatch log shipping
 
 Basic commands:
@@ -240,10 +241,12 @@ This is a quick way to check if the system is healthy.
 
 Additional opt-in commands:
 
-- `sudo npm-helper health-report` – unified pass/warn/fail health assessment across all subsystems (backup, restore, certs, disk, upgrade state)
+- `sudo npm-helper health-report` – unified pass/warn/fail health assessment across all subsystems (backup, restore, certs, disk, upgrade state); emits `NORTHSTAR_HEALTH_REPORT` structured log for CloudWatch
 - `sudo npm-helper health-report --json` – machine-readable JSON health report for fleet dashboards or monitoring
 - `sudo npm-helper reliability-report` – runtime reliability KPIs computed from instance history (backup success rate, restore verification pass rate, rollback readiness)
 - `sudo npm-helper reliability-report --json` – machine-readable JSON reliability KPIs
+- `sudo npm-helper compliance-report` – runtime CIS benchmark compliance verification (checks SSH, UFW, sysctl, fail2ban against CIS Ubuntu 22.04 LTS Benchmark v1.0.0)
+- `sudo npm-helper compliance-report --json` – machine-readable JSON compliance evidence for audit packs
 - `sudo npm-helper update-os` – run a one-click `apt-get update` + `apt-get upgrade` (may require reboot)
 - `sudo npm-helper diagnostics --json` – emit non-sensitive diagnostic JSON for support/troubleshooting
 - `sudo npm-helper admin-access enable --cidr <ip>/32` – allowlist port 81 from a trusted IP
@@ -517,6 +520,45 @@ sudo find /var/backups -maxdepth 1 -name 'npm-support-*.tar.gz' -mtime +14 -dele
 ```
 
 Consider adding this to a cron job if you generate bundles frequently.
+
+---
+
+## Instance Tagging (Fleet Visibility)
+
+On first boot, the AMI attempts to tag the EC2 instance with Northstar product metadata using the attached IAM role. This is best-effort and non-blocking; if IAM permissions are missing, initialization continues normally.
+
+Tags applied:
+
+- `northstar:product` = `npm-hardened-edition`
+- `northstar:init-status` = `complete`
+- `northstar:init-timestamp` = ISO 8601 UTC timestamp
+- `northstar:ami-build` = build timestamp from `/opt/northstar/build-manifest.txt` (if available)
+
+Required IAM permission: `ec2:CreateTags` scoped to the instance.
+
+These tags enable fleet inventory filtering in the EC2 console and are useful for operators managing multiple NPM instances.
+
+---
+
+## Compliance Verification
+
+The `compliance-report` command performs runtime verification of CIS benchmark hardening controls on a running instance. This provides live evidence that security controls have not drifted since AMI bake.
+
+```bash
+sudo npm-helper compliance-report
+sudo npm-helper compliance-report --json
+```
+
+Or via the wrapper:
+
+```bash
+sudo northstar compliance-report
+sudo northstar compliance-report --json
+```
+
+The report checks SSH configuration, UFW firewall state, sysctl kernel parameters, and fail2ban status against the CIS Ubuntu Linux 22.04 LTS Benchmark v1.0.0 mapping documented in [`docs/security.md`](./security.md).
+
+The `--json` output is designed for attachment to audit evidence packs.
 
 ---
 

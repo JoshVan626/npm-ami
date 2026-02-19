@@ -39,9 +39,12 @@ This repository is **not** intended to be a general-purpose installation guide. 
   - `npm-support-bundle`
   - `npm-update-container` (`--rollback` supported)
 - **Operator health and reliability reporting**:
-  - `npm-helper health-report` -- unified pass/warn/fail health assessment (supports `--json`)
+  - `npm-helper health-report` -- unified pass/warn/fail health assessment (supports `--json`); runs daily via systemd timer
   - `npm-helper reliability-report` -- runtime reliability KPIs from instance history (supports `--json`)
+  - `npm-helper compliance-report` -- runtime CIS benchmark verification with audit-ready output (supports `--json`)
 - **Post-restore application validation** -- database integrity, schema, and API endpoint checks after every restore
+- **Fleet visibility** -- automatic EC2 instance tagging with product metadata on first boot (requires `ec2:CreateTags`)
+- **Expanded alarm baseline** -- 8 CloudWatch alarms covering disk, CPU, memory, backup failures, restore validation, certificate expiry, health report failures, and EC2 status checks
 
 ---
 

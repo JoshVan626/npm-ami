@@ -8,6 +8,33 @@
       "metric_name": "backup_failure_count",
       "metric_value": "1",
       "default_value": "0"
+    },
+    {
+      "name": "northstar-restore-validate-warn-count",
+      "log_group": "__LOG_GROUP__",
+      "pattern": "\"NORTHSTAR_RESTORE_VALIDATE status=warn\"",
+      "metric_namespace": "NorthstarCloudSolutions/Operational",
+      "metric_name": "restore_validate_warn_count",
+      "metric_value": "1",
+      "default_value": "0"
+    },
+    {
+      "name": "northstar-cert-expiry-warn-count",
+      "log_group": "__LOG_GROUP__",
+      "pattern": "\"NORTHSTAR_CERT_EXPIRY_WARN\"",
+      "metric_namespace": "NorthstarCloudSolutions/Operational",
+      "metric_name": "cert_expiry_warn_count",
+      "metric_value": "1",
+      "default_value": "0"
+    },
+    {
+      "name": "northstar-health-report-fail-count",
+      "log_group": "__LOG_GROUP__",
+      "pattern": "\"NORTHSTAR_HEALTH_REPORT overall=fail\"",
+      "metric_namespace": "NorthstarCloudSolutions/Operational",
+      "metric_name": "health_report_fail_count",
+      "metric_value": "1",
+      "default_value": "0"
     }
   ],
   "alarms": [
@@ -99,6 +126,45 @@
           "value": "__INSTANCE_ID__"
         }
       ]
+    },
+    {
+      "name": "northstar-npm-__INSTANCE_ID__-restore-validate-warn",
+      "description": "Post-restore application validation emitted warnings or failures",
+      "namespace": "NorthstarCloudSolutions/Operational",
+      "metric_name": "restore_validate_warn_count",
+      "statistic": "Sum",
+      "period": 300,
+      "evaluation_periods": 1,
+      "threshold": 1,
+      "comparison_operator": "GreaterThanOrEqualToThreshold",
+      "treat_missing_data": "notBreaching",
+      "dimensions": []
+    },
+    {
+      "name": "northstar-npm-__INSTANCE_ID__-cert-expiry-warn",
+      "description": "TLS certificate expiry warning detected",
+      "namespace": "NorthstarCloudSolutions/Operational",
+      "metric_name": "cert_expiry_warn_count",
+      "statistic": "Sum",
+      "period": 300,
+      "evaluation_periods": 1,
+      "threshold": 1,
+      "comparison_operator": "GreaterThanOrEqualToThreshold",
+      "treat_missing_data": "notBreaching",
+      "dimensions": []
+    },
+    {
+      "name": "northstar-npm-__INSTANCE_ID__-health-report-fail",
+      "description": "Automated health report detected a failing subsystem",
+      "namespace": "NorthstarCloudSolutions/Operational",
+      "metric_name": "health_report_fail_count",
+      "statistic": "Sum",
+      "period": 300,
+      "evaluation_periods": 1,
+      "threshold": 1,
+      "comparison_operator": "GreaterThanOrEqualToThreshold",
+      "treat_missing_data": "notBreaching",
+      "dimensions": []
     }
   ]
 }

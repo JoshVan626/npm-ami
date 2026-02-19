@@ -83,6 +83,19 @@
         "query": "SOURCE '__LOG_GROUP__' | fields @timestamp, @logStream, @message | filter @logStream like /__INSTANCE_ID__/ | sort @timestamp desc | limit 50",
         "view": "table"
       }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 12,
+      "width": 24,
+      "height": 6,
+      "properties": {
+        "title": "Operational Events (__INSTANCE_ID__)",
+        "region": "__REGION__",
+        "query": "SOURCE '__LOG_GROUP__' | fields @timestamp, @message | filter @message like /NORTHSTAR_BACKUP|NORTHSTAR_RESTORE_VALIDATE|NORTHSTAR_CERT_EXPIRY_WARN|NORTHSTAR_HEALTH_REPORT|NORTHSTAR_POSTINIT/ | sort @timestamp desc | limit 100",
+        "view": "table"
+      }
     }
   ]
 }

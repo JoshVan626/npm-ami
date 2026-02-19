@@ -25,6 +25,7 @@ from npm_common import (
     hash_password,
     set_admin_password,
     store_credentials_in_secrets_manager,
+    tag_instance_metadata,
     write_credentials_file,
     CREDENTIALS_PATH,
     migrate_legacy_credentials,
@@ -237,6 +238,11 @@ def main() -> None:
 
         MARKER_FILE.parent.mkdir(parents=True, exist_ok=True)
         MARKER_FILE.touch()
+
+        try:
+            tag_instance_metadata()
+        except Exception as e:
+            logger.warning("Instance tagging skipped (non-blocking): %s", e)
 
         logger.info("NPM initialization completed successfully!")
     except Exception as e:

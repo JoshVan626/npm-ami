@@ -481,3 +481,107 @@ def store_credentials_in_secrets_manager(email: str, password: str) -> bool:
             "Unexpected error storing credentials in Secrets Manager: %s", exc
         )
         return False
+
+
+_tag_logger = logging.getLogger(__name__)
+
+BUILD_MANIFEST_PATH = "/opt/northstar/build-manifest.txt"
+
+
+def tag_instance_metadata() -> bool:
+    """Best-effort EC2 instance tagging with Northstar product metadata.
+
+    Uses IMDSv2 to discover instance ID and region, then calls
+    ``aws ec2 create-tags`` to set product-level tags.  Requires
+    ec2:CreateTags permission on the attached IAM role.  If any step
+    fails, the failure is logged and the function returns False.
+
+    Returns:
+        True if tags were applied, False otherwise.
+    """
+    from datetime import datetime as _dt
+
+    try:
+        token_r = subprocess.run(
+            [
+                "curl", "-sS", "-m", "1", "-X", "PUT",
+                "http://169.254.169.254/latest/api/token",
+                "-H", "X-aws-ec2-metadata-token-ttl-seconds: 60",
+            ],
+            capture_output=True, text=True, timeout=3,
+        )
+        if token_r.returncode != 0 or not token_r.stdout.strip():
+            _tag_logger.warning("IMDSv2 token unavailable; skipping instance tagging.")
+            return False
+        token = token_r.stdout.strip()
+
+        def _imds_get(path):
+            r = subprocess.run(
+                [
+                    "curl", "-sS", "-m", "1",
+                    "-H", f"X-aws-ec2-metadata-token: {token}",
+                    f"http://169.254.169.254/latest/meta-data/{path}",
+                ],
+                capture_output=True, text=True, timeout=3,
+            )
+            return r.stdout.strip() if r.returncode == 0 else ""
+
+        instance_id = _imds_get("instance-id")
+        az = _imds_get("placement/availability-zone")
+        region = az[:-1] if az else ""
+
+        if not instance_id or not region:
+            _tag_logger.warning("Could not resolve instance-id/region; skipping tagging.")
+            return False
+
+        ami_build = ""
+        manifest = Path(BUILD_MANIFEST_PATH)
+        if manifest.exists():
+            try:
+                for line in manifest.read_text(encoding="utf-8").splitlines():
+                    if line.startswith("build_timestamp"):
+                        ami_build = line.split(":", 1)[1].strip() if ":" in line else ""
+                        break
+            except Exception:
+                pass
+
+        tags = [
+            {"Key": "northstar:product", "Value": "npm-hardened-edition"},
+            {"Key": "northstar:init-status", "Value": "complete"},
+            {"Key": "northstar:init-timestamp", "Value": _dt.utcnow().isoformat() + "Z"},
+        ]
+        if ami_build:
+            tags.append({"Key": "northstar:ami-build", "Value": ami_build})
+
+        tags_json = json.dumps(tags)
+        result = subprocess.run(
+            [
+                "aws", "ec2", "create-tags",
+                "--region", region,
+                "--resources", instance_id,
+                "--tags", tags_json,
+            ],
+            capture_output=True, text=True, timeout=10,
+        )
+
+        if result.returncode == 0:
+            _tag_logger.info(
+                "Instance %s tagged with Northstar metadata.", instance_id
+            )
+            return True
+
+        _tag_logger.warning(
+            "EC2 tagging failed (rc=%d): %s",
+            result.returncode, result.stderr.strip() or result.stdout.strip(),
+        )
+        return False
+
+    except FileNotFoundError:
+        _tag_logger.warning("AWS CLI or curl not found; skipping instance tagging.")
+        return False
+    except subprocess.TimeoutExpired:
+        _tag_logger.warning("Timed out during instance tagging.")
+        return False
+    except Exception as exc:
+        _tag_logger.warning("Unexpected error during instance tagging: %s", exc)
+        return False

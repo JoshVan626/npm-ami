@@ -19,6 +19,7 @@ Commands:
   support-bundle             Run npm-support-bundle
   health-report [--json]     Unified pass/warn/fail health assessment
   reliability-report [--json] Runtime reliability KPIs
+  compliance-report [--json]  Runtime CIS benchmark verification
 
 Examples:
   sudo northstar status
@@ -67,6 +68,9 @@ case "$cmd" in
     ;;
   reliability-report)
     exec npm-helper reliability-report "$@"
+    ;;
+  compliance-report)
+    exec npm-helper compliance-report "$@"
     ;;
   -h|--help|help)
     usage
