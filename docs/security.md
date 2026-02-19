@@ -160,3 +160,63 @@ This ensures that **each** EC2 instance launched from the AMI has unique cryptog
 - Older AMI versions are not guaranteed to receive fixes; for the best security posture, prefer the latest Marketplace version and plan to rotate instances to newer images over time.
 - Between AMI releases, OS-level security updates on running instances rely on Ubuntu's `unattended-upgrades` and any additional patching practices you apply.
 - Security maintenance and support are provided on a best-effort basis only; no formal SLA or uptime guarantee is offered.
+
+---
+
+## Compliance Mapping
+
+This section maps the AMI's built-in hardening controls to the **CIS Ubuntu Linux 22.04 LTS Benchmark v1.0.0**. Use this as evidence when evaluating the AMI against your organization's compliance requirements.
+
+> **Disclaimer:** This mapping is provided as guidance. Northstar Cloud Solutions LLC does not certify CIS compliance on your behalf. Customers should run their own CIS-CAT assessments or equivalent audits against running instances and apply any additional controls required by their security policies.
+
+### SSH Server Configuration
+
+| AMI Control | Configuration Source | CIS Benchmark Section | Status |
+|---|---|---|---|
+| `PasswordAuthentication no` | `/etc/ssh/sshd_config` | 5.2.6 -- Ensure SSH password authentication is disabled | Enforced at bake time |
+| `PermitRootLogin no` | `/etc/ssh/sshd_config` | 5.2.10 -- Ensure SSH root login is disabled | Enforced at bake time |
+| `PubkeyAuthentication yes` | `/etc/ssh/sshd_config` | 5.2.5 -- Ensure SSH access is configured | Enforced at bake time |
+| `UsePAM yes` | `/etc/ssh/sshd_config` | 5.2.17 -- Ensure SSH PAM is enabled | Enforced at bake time |
+| `Banner /etc/issue.net` | `/etc/ssh/sshd_config` | 1.7.1 -- Ensure message of the day is configured properly; 5.2.16 -- Ensure SSH warning banner is configured | Enforced at bake time |
+| Unique SSH host keys per instance | `cloud-init` (`99-northstar-sshkeys.cfg`) | 5.2.1 -- Ensure permissions on /etc/ssh/sshd_config are configured | Regenerated on first boot |
+
+### Firewall (UFW)
+
+| AMI Control | Configuration Source | CIS Benchmark Section | Status |
+|---|---|---|---|
+| Default deny incoming | UFW policy (`ufw default deny incoming`) | 3.5.1.7 -- Ensure ufw default deny firewall policy | Enforced at bake time |
+| Allow only 22/tcp, 80/tcp, 443/tcp | UFW rules | 3.5.1.4 -- Ensure ufw firewall rules exist for all open ports | Enforced at bake time |
+| Port 81/tcp restricted by default | UFW + `npm-helper admin-access` | 3.5.1.7 -- Ensure ufw default deny firewall policy | Enforced at bake time; admin opt-in required |
+| UFW enabled and active | `ufw --force enable` | 3.5.1.1 -- Ensure ufw is installed; 3.5.1.3 -- Ensure ufw service is enabled | Enforced at bake time |
+
+### Network Parameters (sysctl)
+
+| AMI Control | Configuration Source | CIS Benchmark Section | Status |
+|---|---|---|---|
+| `net.ipv4.conf.all.accept_redirects = 0` | `/etc/sysctl.d/99-brand-hardened.conf` | 3.3.2 -- Ensure ICMP redirects are not accepted | Enforced at bake time |
+| `net.ipv4.conf.default.accept_redirects = 0` | `/etc/sysctl.d/99-brand-hardened.conf` | 3.3.2 -- Ensure ICMP redirects are not accepted | Enforced at bake time |
+| `net.ipv4.conf.all.send_redirects = 0` | `/etc/sysctl.d/99-brand-hardened.conf` | 3.3.2 -- Ensure ICMP redirects are not sent | Enforced at bake time |
+| `net.ipv4.conf.default.send_redirects = 0` | `/etc/sysctl.d/99-brand-hardened.conf` | 3.3.2 -- Ensure ICMP redirects are not sent | Enforced at bake time |
+| `net.ipv4.conf.all.accept_source_route = 0` | `/etc/sysctl.d/99-brand-hardened.conf` | 3.3.1 -- Ensure source routed packets are not accepted | Enforced at bake time |
+| `net.ipv4.conf.default.accept_source_route = 0` | `/etc/sysctl.d/99-brand-hardened.conf` | 3.3.1 -- Ensure source routed packets are not accepted | Enforced at bake time |
+| `net.ipv4.icmp_echo_ignore_broadcasts = 1` | `/etc/sysctl.d/99-brand-hardened.conf` | 3.3.5 -- Ensure broadcast ICMP requests are ignored | Enforced at bake time |
+| `net.ipv4.conf.all.rp_filter = 1` | `/etc/sysctl.d/99-brand-hardened.conf` | 3.3.7 -- Ensure Reverse Path Filtering is enabled | Enforced at bake time |
+| `net.ipv4.conf.default.rp_filter = 1` | `/etc/sysctl.d/99-brand-hardened.conf` | 3.3.7 -- Ensure Reverse Path Filtering is enabled | Enforced at bake time |
+
+### Defense-in-Depth (supplementary controls)
+
+| AMI Control | Configuration Source | CIS Benchmark Section | Status |
+|---|---|---|---|
+| fail2ban `sshd` jail (5 retries / 10 min window / 1 hr ban) | `/etc/fail2ban/jail.local` | Supplements 5.2.x SSH controls | Enforced at bake time |
+| `unattended-upgrades` enabled | Ubuntu default + AMI configuration | 1.9 -- Ensure updates, patches, and additional security software are installed | Enabled by default |
+| Admin credentials stored root-only (`0600`) | `/root/.northstar/npm-admin-credentials` | N/A -- defense-in-depth credential protection | Enforced at first boot |
+| Optional Secrets Manager integration | `npm-init.py` + IAM role | N/A -- enterprise governance enhancement | Best-effort; requires IAM permissions |
+
+### Customer-Owned Controls
+
+The following CIS controls depend on customer configuration and are outside the AMI baseline:
+
+- **3.5.1.4** -- Additional firewall rules beyond the defaults (e.g., restricting SSH to specific CIDRs) are the customer's responsibility via EC2 Security Groups and UFW.
+- **5.2.4** -- Restricting SSH access to specific users/groups (`AllowUsers`/`AllowGroups`) is customer-configured.
+- **5.4.x** -- User account and password policies for any additional OS users created by the customer.
+- **6.1.x / 6.2.x** -- File and directory permission auditing beyond the AMI defaults.

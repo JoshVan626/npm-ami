@@ -343,6 +343,8 @@ The CloudWatch Agent is configured to ship:
 - `/var/log/syslog`
 - `/var/log/auth.log`
 - `/var/lib/docker/containers/*/*-json.log`
+- `/opt/npm/data/logs/*_access.log` (Nginx proxy access logs)
+- `/opt/npm/data/logs/*_error.log` (Nginx proxy error logs)
 
 into a log group named:
 
@@ -350,7 +352,13 @@ into a log group named:
 /northstar-cloud-solutions/npm
 ```
 
-with per-instance log streams (e.g. `{instance_id}-syslog`, `{instance_id}-auth`, `{instance_id}-docker`).
+with per-instance log streams:
+
+- `{instance_id}-syslog` -- OS system log
+- `{instance_id}-auth` -- SSH and authentication events
+- `{instance_id}-docker` -- Docker container stdout/stderr
+- `{instance_id}-nginx-access` -- Nginx proxy host access logs (all proxy hosts combined)
+- `{instance_id}-nginx-error` -- Nginx proxy host error logs (all proxy hosts combined)
 
 You can view these in:
 
@@ -361,6 +369,8 @@ This is useful for:
 - SSH login attempts
 - System service failures
 - General OS-level troubleshooting
+- Nginx request traffic analysis, upstream errors, and proxy host debugging
+- Identifying 4xx/5xx error patterns across proxy hosts
 
 If the agent is not installed (for example, because the `amazon-cloudwatch-agent` apt
 package was unavailable during AMI bake), the application will continue to function
@@ -481,3 +491,69 @@ sudo find /var/backups -maxdepth 1 -name 'npm-support-*.tar.gz' -mtime +14 -dele
 ```
 
 Consider adding this to a cron job if you generate bundles frequently.
+
+---
+
+## Enterprise Support
+
+This AMI is a **hardened, production-grade appliance** backed by Northstar Cloud Solutions. The support model below defines a clear standard operating procedure (SOP) to ensure fast, safe issue resolution.
+
+### Support Tiers
+
+| Tier | Scope | How to Access |
+|---|---|---|
+| **Self-Service (included)** | Documentation, troubleshooting guides, and CLI tooling (`npm-helper`, `northstar`) | [`docs/`](./index.md), [`docs/troubleshooting.md`](./troubleshooting.md) |
+| **Premium Hardened Support** | Dedicated email support for AMI initialization, credential recovery, backup/restore workflows, upgrade failures, and observability configuration | Email **support@northstarcloud.io** with a support bundle attached |
+
+### Standard Operating Procedure (SOP)
+
+Before contacting Premium Hardened Support, complete the following steps:
+
+1. **Generate a support bundle:**
+
+```bash
+sudo npm-support-bundle
+```
+
+This produces an encrypted diagnostic archive at `/var/backups/npm-support-YYYYMMDDHHMMSS.tar.gz` containing system information, service status, sanitized logs, NPM data metadata, and backup configuration. **No secrets, passwords, or private keys are included.**
+
+2. **Collect instance metadata:**
+
+```bash
+sudo npm-helper diagnostics --json > /tmp/npm-diagnostics.json
+```
+
+3. **Prepare your support request** with:
+   - The support bundle archive path (or attach it directly)
+   - The diagnostics JSON output
+   - AWS region and instance type
+   - AMI version (from `/opt/northstar/build-manifest.txt`)
+   - A concise problem description: what you expected, what happened, when it started, and any recent changes
+
+4. **Email support@northstarcloud.io** with the above information.
+
+### What the support bundle contains
+
+| Section | Contents | Sensitive Data |
+|---|---|---|
+| System information | OS version, kernel, uptime, disk/memory usage | No |
+| Service status | Docker, NPM stack, CloudWatch agent, init services | No |
+| Credential metadata | File location and existence (content is **not** included) | No |
+| Logs | syslog, auth.log, cloud-init, journal (last 1000 lines) | Minimal (IP addresses, usernames in auth logs) |
+| NPM data metadata | Directory listings and sizes (no database content) | No |
+| Backup metadata | Backup config and archive file listing | No |
+
+### What the support bundle does NOT contain
+
+- Admin passwords or credentials file content
+- TLS private keys or certificate files
+- NPM database content
+- AWS access keys or IAM credentials
+- Docker image layers or application data
+
+### Security guidance
+
+- Review the bundle contents before sharing if your organization requires it.
+- Support bundles are written with root ownership. Only `root` (or `sudo`) can read them.
+- Do **not** include secrets, private keys, or full credentials in support emails or tickets.
+- If your organization requires encrypted transport for diagnostic data, note that the bundle archive itself is a standard `.tar.gz`; apply GPG or your organization's encryption tooling before transmitting if required.

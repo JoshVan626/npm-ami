@@ -6,6 +6,8 @@ This module provides common functionality for npm-init.py and npm-helper,
 including database operations, password management, and system utilities.
 """
 
+import json
+import logging
 import os
 import time
 import sqlite3
@@ -384,3 +386,98 @@ if [ -f /var/lib/npm-init-complete ]; then
 fi
 """
     return script_content
+
+
+# AWS Secrets Manager secret name for admin credentials
+SECRETS_MANAGER_SECRET_ID = "northstar/npm/admin-credentials"
+
+_sm_logger = logging.getLogger(__name__)
+
+
+def store_credentials_in_secrets_manager(email: str, password: str) -> bool:
+    """Best-effort storage of admin credentials in AWS Secrets Manager.
+
+    Requires an attached IAM role with secretsmanager:CreateSecret,
+    secretsmanager:PutSecretValue, secretsmanager:DescribeSecret, and
+    secretsmanager:TagResource permissions.  If any step fails (missing
+    IAM role, insufficient permissions, no AWS CLI), the failure is logged
+    as a warning and the function returns False.  The local credentials
+    file remains the authoritative source of truth.
+
+    Returns:
+        True if the secret was successfully created or updated, False otherwise.
+    """
+    secret_value = json.dumps({"email": email, "password": password})
+
+    try:
+        probe = subprocess.run(
+            [
+                "aws", "secretsmanager", "describe-secret",
+                "--secret-id", SECRETS_MANAGER_SECRET_ID,
+                "--output", "json",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        secret_exists = probe.returncode == 0
+
+        if secret_exists:
+            result = subprocess.run(
+                [
+                    "aws", "secretsmanager", "put-secret-value",
+                    "--secret-id", SECRETS_MANAGER_SECRET_ID,
+                    "--secret-string", secret_value,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        else:
+            result = subprocess.run(
+                [
+                    "aws", "secretsmanager", "create-secret",
+                    "--name", SECRETS_MANAGER_SECRET_ID,
+                    "--description",
+                    "NPM admin credentials managed by Northstar Cloud Solutions AMI",
+                    "--secret-string", secret_value,
+                    "--tags",
+                    json.dumps([
+                        {"Key": "ManagedBy", "Value": "northstar-npm-init"},
+                        {"Key": "Product", "Value": "npm-hardened-edition"},
+                    ]),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+
+        if result.returncode == 0:
+            _sm_logger.info(
+                "Admin credentials stored in AWS Secrets Manager (%s).",
+                SECRETS_MANAGER_SECRET_ID,
+            )
+            return True
+
+        _sm_logger.warning(
+            "Secrets Manager call failed (rc=%d): %s",
+            result.returncode,
+            result.stderr.strip() or result.stdout.strip(),
+        )
+        return False
+
+    except FileNotFoundError:
+        _sm_logger.warning(
+            "AWS CLI not found; skipping Secrets Manager credential storage."
+        )
+        return False
+    except subprocess.TimeoutExpired:
+        _sm_logger.warning(
+            "AWS CLI timed out; skipping Secrets Manager credential storage."
+        )
+        return False
+    except Exception as exc:
+        _sm_logger.warning(
+            "Unexpected error storing credentials in Secrets Manager: %s", exc
+        )
+        return False

@@ -30,6 +30,22 @@
             "timestamp_format": "%Y-%m-%dT%H:%M:%S",
             "encoding": "utf-8",
             "auto_removal": false
+          },
+          {
+            "file_path": "/opt/npm/data/logs/*_access.log",
+            "log_group_name": "/northstar-cloud-solutions/npm",
+            "log_stream_name": "{instance_id}-nginx-access",
+            "timestamp_format": "%d/%b/%Y:%H:%M:%S %z",
+            "encoding": "utf-8",
+            "auto_removal": false
+          },
+          {
+            "file_path": "/opt/npm/data/logs/*_error.log",
+            "log_group_name": "/northstar-cloud-solutions/npm",
+            "log_stream_name": "{instance_id}-nginx-error",
+            "timestamp_format": "%Y/%m/%d %H:%M:%S",
+            "encoding": "utf-8",
+            "auto_removal": false
           }
         ]
       }

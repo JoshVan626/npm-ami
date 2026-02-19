@@ -24,6 +24,7 @@ from npm_common import (
     get_sqlite_connection,
     hash_password,
     set_admin_password,
+    store_credentials_in_secrets_manager,
     write_credentials_file,
     CREDENTIALS_PATH,
     migrate_legacy_credentials,
@@ -221,6 +222,7 @@ def main() -> None:
     try:
         write_credentials_file(str(CREDENTIALS_FILE), ADMIN_EMAIL, password)
         migrate_legacy_credentials()
+        store_credentials_in_secrets_manager(ADMIN_EMAIL, password)
 
         ip = detect_instance_ip()
         motd_content = build_motd_script(ip, ADMIN_EMAIL)

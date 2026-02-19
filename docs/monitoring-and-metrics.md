@@ -47,6 +47,8 @@ Baseline artifacts shipped with the AMI:
 - `/var/log/syslog`
 - `/var/log/auth.log`
 - `/var/lib/docker/containers/*/*-json.log`
+- `/opt/npm/data/logs/*_access.log` (Nginx proxy access logs)
+- `/opt/npm/data/logs/*_error.log` (Nginx proxy error logs)
 
 Not shipped by default:
 
@@ -157,8 +159,10 @@ to the CloudWatch Logs **log group**:
 Each instance uses separate log streams, for example:
 
 - `{instance_id}-syslog`
-
 - `{instance_id}-auth`
+- `{instance_id}-docker`
+- `{instance_id}-nginx-access`
+- `{instance_id}-nginx-error`
 
 ### Metrics
 

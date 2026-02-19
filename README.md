@@ -72,6 +72,31 @@ Diagram source: [`docs/assets/architecture.mmd`](docs/assets/architecture.mmd).
 
 ---
 
+## Enterprise Infrastructure as Code (IaC)
+
+Production deployments deserve repeatable, auditable infrastructure. This AMI ships with **ready-to-use Terraform and CloudFormation templates** in the [`deploy/`](deploy/) directory so you can launch hardened NPM instances through your existing IaC pipelines.
+
+| Template | Path | Quick Start |
+|---|---|---|
+| **Terraform** | [`deploy/terraform/main.tf`](deploy/terraform/main.tf) | `terraform apply -var-file=examples/minimal.tfvars` |
+| **CloudFormation** | [`deploy/cloudformation/template.yaml`](deploy/cloudformation/template.yaml) | `aws cloudformation create-stack --template-body file://deploy/cloudformation/template.yaml` |
+
+Both templates create:
+
+- An EC2 instance with the hardened AMI
+- A security group with public 80/443 and **restricted admin ports** (22/81)
+- An IAM instance role and instance profile for optional CloudWatch and S3 backup permissions
+- Optional Elastic IP association
+
+Example configurations for both minimal and security-hardened deployments are included:
+
+- Terraform: [`deploy/terraform/examples/`](deploy/terraform/examples/)
+- CloudFormation: [`deploy/cloudformation/examples/`](deploy/cloudformation/examples/)
+
+Full deployment instructions: [`deploy/README.md`](deploy/README.md)
+
+---
+
 ## Getting Started (AMI Users)
 
 After launching the AMI from AWS Marketplace:
@@ -182,6 +207,7 @@ Use the compatibility matrix in `RELEASES.md` to map AMI version to pinned NPM i
 - **CloudWatch Logs**
   - Log group: `/northstar-cloud-solutions/npm`
   - System logs (`syslog`, `auth.log`) and Docker container logs
+  - Nginx proxy access and error logs (per-proxy-host visibility)
 - **CloudWatch Metrics**
   - Namespace: `NorthstarCloudSolutions/System`
   - Memory and disk usage
@@ -212,6 +238,8 @@ When an instance role is attached, the CloudWatch agent can ship:
 - `/var/log/syslog`
 - `/var/log/auth.log`
 - Docker container logs (`/var/lib/docker/containers/*/*-json.log`)
+- Nginx proxy access logs (`/opt/npm/data/logs/*_access.log`)
+- Nginx proxy error logs (`/opt/npm/data/logs/*_error.log`)
 - Basic system metrics (CPU, memory, disk, network)
 
 To disable CloudWatch shipping:
