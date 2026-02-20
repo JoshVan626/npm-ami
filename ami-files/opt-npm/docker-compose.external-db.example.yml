@@ -7,6 +7,10 @@
 # Backup/restore: Database content is not included in npm-backup/npm-restore.
 # Use RDS snapshots, mysqldump, or pg_dump for the database; our tools still
 # back up /data (config) and /etc/letsencrypt (certs) on the host.
+#
+# RDS endpoint format: <identifier>.<region>.rds.amazonaws.com
+# Example: npm-mysql.us-east-1.rds.amazonaws.com
+# Ensure the RDS security group allows inbound from the NPM EC2 security group on 3306/5432.
 
 version: '3.8'
 
@@ -15,13 +19,13 @@ services:
     environment:
       - DISABLE_IPV6=true
       # --- Use ONE of the following (MySQL/MariaDB OR PostgreSQL). Uncomment and set values. ---
-      # MySQL/MariaDB:
+      # MySQL/MariaDB (RDS: *.region.rds.amazonaws.com):
       # - DB_MYSQL_HOST=your-rds-endpoint.region.rds.amazonaws.com
       # - DB_MYSQL_PORT=3306
       # - DB_MYSQL_USER=npm
       # - DB_MYSQL_PASSWORD=your-secure-password
       # - DB_MYSQL_NAME=nginx_proxy_manager
-      # PostgreSQL:
+      # PostgreSQL (RDS: *.region.rds.amazonaws.com):
       # - DB_POSTGRES_HOST=your-rds-endpoint.region.rds.amazonaws.com
       # - DB_POSTGRES_PORT=5432
       # - DB_POSTGRES_USER=npm

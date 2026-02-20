@@ -1,0 +1,17 @@
+[Unit]
+Description=NPM health HTTP endpoint for load balancers and monitoring
+Documentation=https://northstarcloud.io/docs/npm-ami
+After=npm.service docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/npm-health-endpoint
+Restart=on-failure
+RestartSec=5
+# Default bind 127.0.0.1:9180; override via /etc/default/npm-health-endpoint:
+EnvironmentFile=-/etc/default/npm-health-endpoint
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

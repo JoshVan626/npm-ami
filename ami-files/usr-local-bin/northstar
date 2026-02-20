@@ -24,6 +24,7 @@ Commands:
   cutover-eip <alloc> <id>   Reassociate EIP to new instance (scripted cutover)
   pre-upgrade-check          Pre-upgrade compatibility (config, DB, certs)
   migrate-import <path>      Import data from existing NPM installation
+  set-channel <channel>      Switch NPM image channel (stable|edge)
 
 Examples:
   sudo northstar status
@@ -87,6 +88,9 @@ case "$cmd" in
     ;;
   migrate-import)
     exec npm-migrate-import "$@"
+    ;;
+  set-channel)
+    exec npm-helper set-channel "$@"
     ;;
   -h|--help|help)
     usage

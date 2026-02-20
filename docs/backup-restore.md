@@ -434,6 +434,70 @@ rm /tmp/s3-test.txt
 aws s3 rm s3://YOUR-BUCKET/test.txt
 ```
 
+To validate S3 configuration (bucket exists, IAM can write):
+
+```bash
+sudo npm-backup-s3-check
+```
+
+### S3 offsite replication and lifecycle
+
+When using S3 for backups, you can improve durability and compliance with these AWS features:
+
+| Feature | Purpose |
+|--------|---------|
+| **Bucket versioning** | Protects against accidental overwrites; enables restore of previous versions |
+| **Lifecycle rules** | Automatically move old backups to Glacier or delete after retention (e.g. delete after 90 days) |
+| **Cross-region replication (CRR)** | Copies backups to a secondary region for disaster recovery |
+| **Bucket policy / IAM** | Least-privilege access: scope `s3:PutObject`, `s3:GetObject` to the backup prefix only |
+
+**Terraform example (S3 bucket with lifecycle rule):**
+
+```hcl
+resource "aws_s3_bucket" "npm_backups" {
+  bucket = "my-npm-backups"
+}
+
+resource "aws_s3_bucket_versioning_configuration" "npm_backups" {
+  bucket = aws_s3_bucket.npm_backups.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "npm_backups" {
+  bucket = aws_s3_bucket.npm_backups.id
+
+  rule {
+    id     = "retain-and-archive"
+    status = "Enabled"
+    expiration {
+      days = 90
+    }
+    transition {
+      days          = 30
+      storage_class = "GLACIER"
+    }
+  }
+}
+```
+
+**CloudFormation snippet (lifecycle rule):**
+
+```yaml
+LifecycleConfiguration:
+  Rules:
+    - Id: RetainAndArchive
+      Status: Enabled
+      ExpirationInDays: 90
+      Transitions:
+        - Days: 30
+          StorageClass: GLACIER
+```
+
+For cross-region replication, create a replication rule on the source bucket targeting a destination bucket in another region. See [AWS S3 CRR documentation](https://docs.aws.amazon.com/AmazonS3/latest/userguide/replication.html) for setup.
+
 ### Viewing backup logs
 
 Backup output goes to journald:

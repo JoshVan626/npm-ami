@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# npm-backup-s3-check: Validate S3 backup configuration
+# Checks bucket existence, IAM write access, optionally versioning/lifecycle.
+# Non-blocking; useful for pre-flight or troubleshooting.
+
+set -euo pipefail
+
+CONFIG_FILE="/etc/npm-backup.conf"
+S3_BUCKET=""
+S3_PREFIX="npm"
+
+if [[ -f "$CONFIG_FILE" ]]; then
+    in_section=false
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        [[ -z "$line" || "$line" =~ ^# ]] && continue
+        if [[ "$line" == "[backup]" ]]; then
+            in_section=true
+            continue
+        fi
+        if [[ "$in_section" == true ]]; then
+            [[ "$line" =~ ^\[.*\]$ ]] && break
+            if [[ "$line" =~ ^([^=]+)=(.*)$ ]]; then
+                key=$(echo "${BASH_REMATCH[1]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                value=$(echo "${BASH_REMATCH[2]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                case "$key" in
+                    s3_bucket) S3_BUCKET="$value" ;;
+                    s3_prefix) S3_PREFIX="$value" ;;
+                esac
+            fi
+        fi
+    done < "$CONFIG_FILE"
+fi
+
+if [[ -z "$S3_BUCKET" ]]; then
+    echo "S3 bucket not configured (s3_bucket not set in $CONFIG_FILE)"
+    exit 0
+fi
+
+echo "Checking S3 configuration: bucket=$S3_BUCKET prefix=$S3_PREFIX"
+
+# Check AWS CLI
+if ! command -v aws &>/dev/null; then
+    echo "ERROR: AWS CLI not found"
+    exit 1
+fi
+
+# Check bucket exists and we can list it
+if ! aws s3 ls "s3://${S3_BUCKET}/" --max-items 1 &>/dev/null; then
+    echo "ERROR: Cannot access bucket s3://${S3_BUCKET} (bucket missing or IAM lacks s3:ListBucket)"
+    exit 1
+fi
+
+# Test write permission
+TEST_KEY="${S3_PREFIX}/npm-backup-s3-check-$(date +%s).txt"
+TEST_CONTENT="npm-backup-s3-check test"
+if ! echo "$TEST_CONTENT" | aws s3 cp - "s3://${S3_BUCKET}/${TEST_KEY}" --only-show-errors 2>/dev/null; then
+    echo "ERROR: Cannot write to s3://${S3_BUCKET}/${S3_PREFIX}/ (IAM lacks s3:PutObject)"
+    exit 1
+fi
+
+# Clean up test object
+aws s3 rm "s3://${S3_BUCKET}/${TEST_KEY}" --only-show-errors 2>/dev/null || true
+
+echo "OK: S3 bucket accessible and writable"

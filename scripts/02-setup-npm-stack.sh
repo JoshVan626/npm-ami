@@ -63,8 +63,8 @@ echo "✓ Copied docker-compose.yml to /opt/npm/"
 echo ""
 echo "[3/6] Installing Python helper scripts and diagnostics..."
 
-PYTHON_SCRIPTS=("npm-init.py" "npm-helper" "npm_common.py")
-BASH_SCRIPTS=("npm-backup" "npm-restore" "npm-restore-verify" "npm-diagnostics" "npm-support-bundle" "npm-preflight" "npm-postinit" "npm-update-container" "npm-stack-start" "npm-cert-check" "northstar")
+PYTHON_SCRIPTS=("npm-init.py" "npm-helper" "npm_common.py" "npm-health-endpoint")
+BASH_SCRIPTS=("npm-backup" "npm-backup-s3-check" "npm-restore" "npm-restore-verify" "npm-diagnostics" "npm-support-bundle" "npm-preflight" "npm-postinit" "npm-update-container" "npm-stack-start" "npm-cert-check" "northstar")
 
 # Copy Python scripts
 for script in "${PYTHON_SCRIPTS[@]}"; do
@@ -129,6 +129,14 @@ if [[ -f "$AMI_FILES/etc/npm-cert-check.conf" ]]; then
     echo "✓ Copied npm-cert-check.conf to /etc/"
 fi
 
+if [[ -f "$AMI_FILES/etc/northstar/npm-image.conf" ]]; then
+    mkdir -p "/etc/northstar"
+    cp "$AMI_FILES/etc/northstar/npm-image.conf" "/etc/northstar/npm-image.conf"
+    chown root:root "/etc/northstar/npm-image.conf"
+    chmod 0644 "/etc/northstar/npm-image.conf"
+    echo "✓ Copied npm-image.conf to /etc/northstar/"
+fi
+
 # Step 5: Install systemd units
 echo ""
 echo "[5/6] Installing systemd units..."
@@ -144,6 +152,7 @@ SYSTEMD_UNITS=(
     "npm-restore-verify.timer"
     "npm-cert-check.service"
     "npm-cert-check.timer"
+    "npm-health-endpoint.service"
 )
 
 for unit in "${SYSTEMD_UNITS[@]}"; do
@@ -223,6 +232,17 @@ if systemctl enable npm-restore-verify.timer --quiet; then
     echo "  ✓ Enabled: npm-restore-verify.timer"
 else
     echo "  ✗ Error: Failed to enable npm-restore-verify.timer"
+    exit 1
+fi
+
+if systemctl enable npm-health-endpoint.service --quiet; then
+    ENABLED_UNITS+=("npm-health-endpoint.service")
+    echo "  ✓ Enabled: npm-health-endpoint.service"
+    if systemctl start npm-health-endpoint.service --quiet 2>/dev/null; then
+        echo "  ✓ Started: npm-health-endpoint.service"
+    fi
+else
+    echo "  ✗ Error: Failed to enable npm-health-endpoint.service"
     exit 1
 fi
 

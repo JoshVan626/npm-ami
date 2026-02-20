@@ -192,6 +192,39 @@ Rollback behavior:
 - Re-runs health checks (container state + HTTP checks on `:81` and `/api`).
 - Never deletes backup archives.
 
+### Version channels (stable vs edge)
+
+You can switch between two channels without specifying a tag:
+
+| Channel | Description |
+|---------|-------------|
+| **stable** | Pinned, tested tag (default; e.g. `2.13.5`). Recommended for production. |
+| **edge** | Latest upstream tag. Use only if you need bleeding-edge features and accept the risk. |
+
+Switch channels:
+
+```bash
+sudo npm-helper set-channel stable
+sudo npm-helper set-channel edge
+```
+
+Or via the wrapper:
+
+```bash
+sudo northstar set-channel stable
+sudo northstar set-channel edge
+```
+
+`set-channel` reads `/etc/northstar/npm-image.conf` for `stable_tag` and `edge_tag`, then runs `npm-update-container <tag>` (backup-first, with health check and rollback on failure). To customize the tags:
+
+```ini
+# /etc/northstar/npm-image.conf
+[channel]
+channel = stable
+stable_tag = 2.13.5
+edge_tag = latest
+```
+
 ### Staying on the pinned version
 
 The AMI's pinned version is tested and known to work. For production stability, consider:

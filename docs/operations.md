@@ -164,6 +164,7 @@ Key services:
 - `npm-postinit.service` – first-boot post-init health summary
 - `npm-backup.timer` – daily backup timer
 - `npm-restore-verify.timer` – periodic non-destructive restore verification timer
+- `npm-health-endpoint.service` – HTTP health endpoint on 127.0.0.1:9180 (configurable via `/etc/default/npm-health-endpoint`)
 - `npm-cert-check.timer` – daily certificate expiry check
 - `npm-health-report.timer` – daily automated health assessment (emits `NORTHSTAR_HEALTH_REPORT`)
 - `amazon-cloudwatch-agent.service` – CloudWatch log shipping
@@ -249,6 +250,7 @@ Additional opt-in commands:
 
 - `sudo npm-helper health-report` – unified pass/warn/fail health assessment across all subsystems (backup, restore, certs, disk, upgrade state); emits `NORTHSTAR_HEALTH_REPORT` structured log for CloudWatch
 - `sudo npm-helper health-report --json` – machine-readable JSON health report for fleet dashboards or monitoring
+- **HTTP health endpoint** – `npm-health-endpoint.service` serves `GET /health` on port 9180 (127.0.0.1 by default) with JSON `{"status":"pass|warn|fail","checks":[...],"timestamp":"..."}` for load balancers (ALB/NLB) and monitoring tools
 - `sudo npm-helper reliability-report` – runtime reliability KPIs computed from instance history (backup success rate, restore verification pass rate, rollback readiness); persists daily snapshot to KPI history
 - `sudo npm-helper reliability-report --json` – machine-readable JSON reliability KPIs
 - `sudo npm-helper reliability-report --history` – show KPI trend summary from daily snapshots (7d/30d averages)
@@ -267,10 +269,12 @@ Additional opt-in commands:
 - `sudo npm-helper upgrade --dry-run` – preflight + show planned steps
 - `sudo npm-helper upgrade` – run a backup-first upgrade using the existing compose pins
 - `sudo npm-update-container <tag>` – backup-first in-place image tag update with health check + rollback attempt
+- `sudo npm-helper set-channel stable|edge` – switch NPM image channel (stable=pinned, edge=latest)
 - `sudo npm-helper upgrade --auto-rollback` – run upgrade and automatically roll back if post-upgrade health checks fail
 - `sudo npm-helper rollback --dry-run` – show rollback plan from last known good metadata
 - `sudo npm-helper rollback` – restore last known good backup + prior image metadata
 - `sudo npm-helper backup verify` – verify the latest backup archive
+- `sudo npm-backup-s3-check` – validate S3 bucket config (bucket exists, IAM write access)
 - `sudo npm-helper restore --dry-run <backup>` – validate a restore without changes
 - `sudo npm-helper restore --verify <backup>` – generate machine-readable restore verification report
 - `sudo npm-restore-verify` – run periodic restore verification workflow once
@@ -280,6 +284,36 @@ Additional opt-in commands:
 - `sudo northstar observability enable --alarm-action-arn arn:aws:sns:...` – opt-in SNS alarm notifications (repeatable)
 - `sudo northstar observability enable --ok-action-arn arn:aws:sns:...` – opt-in SNS OK notifications (repeatable)
 - `sudo northstar observability disable` – disable baseline and remove created CloudWatch resources
+
+---
+
+## HTTP health endpoint (ALB/NLB, Datadog, etc.)
+
+The `npm-health-endpoint.service` exposes an HTTP health endpoint returning JSON for load balancers and monitoring tools:
+
+| Property | Default |
+|----------|---------|
+| **Bind** | 127.0.0.1 (localhost only) |
+| **Port** | 9180 |
+| **Path** | `/health` |
+| **Response** | `{"status":"pass|warn|fail","checks":[...],"timestamp":"..."}` |
+
+To enable external health checks (e.g. ALB target group), bind to `0.0.0.0` and open port 9180 in your security group:
+
+```bash
+# /etc/default/npm-health-endpoint
+NPM_HEALTH_BIND=0.0.0.0
+NPM_HEALTH_PORT=9180
+```
+
+Then restart the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart npm-health-endpoint
+```
+
+For Terraform/CloudFormation target groups, use `GET /health` on port 9180; healthy response is HTTP 200 with `"status":"pass"`. HTTP 503 indicates `"status":"fail"`.
 
 ---
 
@@ -453,7 +487,7 @@ To enable S3 uploads:
 If the instance lacks proper IAM permissions or the AWS CLI, S3 upload will
 fail with a warning but local backup will still succeed.
 
-See [Backup & Restore](./backup-restore.md) for full configuration details.
+See [Backup & Restore](./backup-restore.md) for full configuration, S3 offsite replication and lifecycle guidance, and `npm-backup-s3-check` for S3 validation.
 
 ---
 
@@ -537,6 +571,56 @@ Optional SSL: `DB_MYSQL_SSL`, `DB_MYSQL_SSL_REJECT_UNAUTHORIZED`, `DB_MYSQL_SSL_
 | `DB_POSTGRES_NAME` | Database name |
 
 See [Nginx Proxy Manager upstream documentation](https://github.com/NginxProxyManager/nginx-proxy-manager) for the latest variables and behavior. An example override file is provided as `docker-compose.external-db.example.yml` in `/opt/npm/` (if installed from the AMI); use it as a reference and merge the `environment` section into your running compose setup.
+
+### Using AWS RDS
+
+When using Amazon RDS for MySQL or PostgreSQL, consider the following:
+
+| Topic | Guidance |
+|-------|----------|
+| **Security group** | Allow inbound from the NPM EC2 instance's security group on port 3306 (MySQL) or 5432 (PostgreSQL). EC2 → RDS traffic must be permitted. |
+| **Parameter groups** | For MySQL: set `character_set_server` (e.g. `utf8mb4`), `wait_timeout` and `interactive_timeout` as needed. For PostgreSQL: adjust `shared_buffers` and `max_connections` per RDS size. |
+| **IAM database auth** | RDS supports IAM authentication for MySQL and PostgreSQL. See [RDS IAM authentication](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth.html) for setup. NPM uses standard env vars for credentials; IAM auth requires token generation. |
+| **RDS Proxy** | For connection pooling and failover, consider [RDS Proxy](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy.html). Point `DB_MYSQL_HOST` or `DB_POSTGRES_HOST` to the Proxy endpoint instead of the RDS instance. |
+
+**Terraform snippet (RDS MySQL + security group):**
+
+```hcl
+resource "aws_security_group" "rds" {
+  name_prefix = "npm-rds-"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    from_port       = 3306
+    to_port         = 3306
+    protocol        = "tcp"
+    security_groups = [aws_security_group.npm_ec2.id]
+    description     = "NPM EC2 to RDS MySQL"
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+resource "aws_db_instance" "npm" {
+  identifier           = "npm-mysql"
+  engine               = "mysql"
+  engine_version       = "8.0"
+  instance_class       = "db.t3.micro"
+  allocated_storage    = 20
+  db_name              = "nginx_proxy_manager"
+  username             = "npm"
+  password             = var.db_password
+  vpc_security_group_ids = [aws_security_group.rds.id]
+  # ... subnet_group, multi_az, backup_retention, etc.
+}
+```
+
+For PostgreSQL, use `engine = "postgres"`, `engine_version = "15"` (or preferred), and change the security group ingress to port 5432.
 
 ---
 

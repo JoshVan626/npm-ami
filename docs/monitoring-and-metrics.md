@@ -10,6 +10,14 @@ Product:
 
 ---
 
+## HTTP health endpoint (port 9180)
+
+The AMI includes `npm-health-endpoint.service`, which serves `GET /health` on 127.0.0.1:9180 by default. The endpoint returns JSON `{"status":"pass|warn|fail","checks":[...],"timestamp":"..."}` suitable for ALB/NLB target group health checks, Datadog, or similar monitoring tools.
+
+To expose the endpoint externally for load balancer health checks, configure `/etc/default/npm-health-endpoint` with `NPM_HEALTH_BIND=0.0.0.0` and add port 9180 to the instance security group. See [Operations](operations.md#http-health-endpoint-albnlb-datadog-etc) for details.
+
+---
+
 ## IAM Permissions (Optional)
 
 CloudWatch integration is **optional**. This AMI functions normally without any AWS IAM permissions. If no instance role is attached (or permissions are missing), the CloudWatch Agent may log permission errors and will not be able to publish logs/metrics.

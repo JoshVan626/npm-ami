@@ -2563,6 +2563,29 @@ def cmd_compliance_report(json_mode: bool = False) -> None:
         sys.exit(1)
 
 
+NPM_IMAGE_CONFIG = "/etc/northstar/npm-image.conf"
+
+
+def cmd_set_channel(channel: str) -> None:
+    """Switch NPM image to stable (pinned) or edge (latest) channel."""
+    require_root("set-channel")
+    channel = (channel or "").strip().lower()
+    if channel not in ("stable", "edge"):
+        print("Error: channel must be 'stable' or 'edge'.")
+        sys.exit(1)
+
+    stable_tag = read_config_value(NPM_IMAGE_CONFIG, "channel", "stable_tag", fallback="2.13.5")
+    edge_tag = read_config_value(NPM_IMAGE_CONFIG, "channel", "edge_tag", fallback="latest")
+    tag = stable_tag.strip() if channel == "stable" else edge_tag.strip()
+    if not tag:
+        print(f"Error: {channel}_tag not set in {NPM_IMAGE_CONFIG}")
+        sys.exit(1)
+
+    print(f"Switching to channel '{channel}' (tag: {tag})...")
+    result = run_cmd(["/usr/local/bin/npm-update-container", tag], timeout=1800)
+    sys.exit(result.returncode)
+
+
 def main():
     """Main entry point for npm-helper CLI."""
     parser = argparse.ArgumentParser(
@@ -2640,6 +2663,17 @@ def main():
         "--auto-rollback",
         action="store_true",
         help="Automatically roll back using last backup if health checks fail"
+    )
+
+    # set-channel subcommand
+    parser_set_channel = subparsers.add_parser(
+        "set-channel",
+        help="Switch NPM image channel (stable=pinned, edge=latest)"
+    )
+    parser_set_channel.add_argument(
+        "channel",
+        choices=["stable", "edge"],
+        help="Channel: stable (pinned tag) or edge (latest)"
     )
 
     # rollback subcommand
@@ -2771,6 +2805,8 @@ def main():
             dry_run=getattr(args, "dry_run", False),
             auto_rollback=getattr(args, "auto_rollback", False),
         )
+    elif args.command == "set-channel":
+        cmd_set_channel(getattr(args, "channel", "") or "")
     elif args.command == "rollback":
         cmd_rollback(
             dry_run=getattr(args, "dry_run", False),
